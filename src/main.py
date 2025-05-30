@@ -34,14 +34,28 @@ security = HTTPBearer()
 camera_manager: Optional[CameraManager] = None
 
 # Templates and static files (will be created during setup)
-templates = Jinja2Templates(directory="src/templates")
+# Lazy initialization for templates (performance optimization)
+templates = None
+
+def get_templates():
+    """Lazy load templates"""
+    global templates
+    if templates is None:
+        templates = Jinja2Templates(directory="src/templates")
+    return templates
 
 # Ensure static and photos directories exist
-os.makedirs("static", exist_ok=True)
+# Conditionally create static directory based on resource mode
+if not config.low_resource_mode:
+    os.makedirs("static", exist_ok=True)
 os.makedirs(config.photos_dir, exist_ok=True)
 
 # Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Conditionally mount static files based on resource mode
+if not config.low_resource_mode:
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+else:
+    print("⚡ Low resource mode: Static files mounting deferred")
 
 
 def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -70,7 +84,9 @@ async def startup_event():
     # Initialize camera manager
     try:
         camera_manager = CameraManager(config)
-        if camera_manager.init_camera():
+        if config.low_resource_mode:
+            print("⚡ Low resource mode: Camera initialization deferred until first use")
+        elif camera_manager.init_camera():
             print("📷 Camera ready!")
         else:
             print("⚠️  Camera initialization failed - some features may not work")
@@ -96,7 +112,7 @@ async def shutdown_event():
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Serve main web interface"""
-    return templates.TemplateResponse("index.html", {
+    return get_templates().TemplateResponse("index.html", {
         "request": request,
         "api_key": config.api_key
     })
