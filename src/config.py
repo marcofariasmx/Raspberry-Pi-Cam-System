@@ -1,9 +1,10 @@
 """
 Configuration management for Raspberry Pi Camera Web App
-Handles environment variables with sensible defaults and validation
+Handles environment variables with automatic secure credential generation
 """
 
 import os
+import secrets
 from typing import Optional
 from dataclasses import dataclass
 
@@ -50,7 +51,7 @@ class AppConfig:
 
     @classmethod
     def from_env(cls) -> 'AppConfig':
-        """Create configuration from environment variables with defaults"""
+        """Create configuration from environment variables with secure defaults"""
         
         def get_bool(key: str, default: bool) -> bool:
             """Get boolean from environment variable"""
@@ -64,14 +65,17 @@ class AppConfig:
             except ValueError:
                 return default
         
-        def get_str(key: str, default: str) -> str:
+        def get_str(key: str, default: str = None) -> str:
             """Get string from environment variable"""
-            return os.getenv(key, default)
+            value = os.getenv(key, default)
+            if value is None:
+                raise ValueError(f"Required environment variable {key} not found")
+            return value
         
         return cls(
-            # Security - generate secure defaults if not provided
-            api_key=get_str('API_KEY', 'cam_secure_key_raspberry_pi_monitor'),
-            web_password=get_str('WEB_PASSWORD', 'camera123'),
+            # Security - require these to be set (no defaults)
+            api_key=get_str('API_KEY'),
+            web_password=get_str('WEB_PASSWORD'),
             
             # Camera configuration
             camera_auto_detect=get_bool('CAMERA_AUTO_DETECT', True),
@@ -114,8 +118,8 @@ class AppConfig:
         if not self.api_key or len(self.api_key) < 8:
             errors.append("API_KEY must be at least 8 characters long")
         
-        if not self.web_password or len(self.web_password) < 6:
-            errors.append("WEB_PASSWORD must be at least 6 characters long")
+        if not self.web_password:
+            errors.append("WEB_PASSWORD is required")
         
         # Validate camera settings
         if self.camera_fallback_width < 320 or self.camera_fallback_height < 240:
@@ -147,21 +151,112 @@ class AppConfig:
         print(f"   📁 Photos: {self.photos_dir}, Max={self.max_photos}")
 
 
+def generate_secure_credentials() -> tuple[str, str]:
+    """Generate cryptographically secure API key and password"""
+    # Generate a secure API key: 'cam_' + 32 random hex characters
+    api_key = "cam_" + secrets.token_hex(16)
+    
+    # Generate a secure password: 16 characters with letters, numbers, and symbols
+    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+    password = ''.join(secrets.choice(alphabet) for _ in range(16))
+    
+    return api_key, password
+
+
+def create_env_file_with_secure_credentials() -> tuple[str, str]:
+    """Create .env file with secure credentials using .env.example as template"""
+    api_key, password = generate_secure_credentials()
+    
+    # Always use .env.example as the single source of truth
+    env_example_path = '.env.example'
+    
+    if os.path.exists(env_example_path):
+        with open(env_example_path, 'r') as f:
+            env_content = f.read()
+        
+        # Replace the placeholder values with generated secure credentials
+        env_content = env_content.replace('your_secure_api_key_here', api_key)
+        env_content = env_content.replace('your_secure_password_here', password)
+    else:
+        # Minimal fallback only if .env.example is somehow missing
+        print("⚠️  Warning: .env.example not found, creating minimal configuration")
+        env_content = f"API_KEY={api_key}\nWEB_PASSWORD={password}\n"
+    
+    # Write the .env file
+    with open('.env', 'w') as f:
+        f.write(env_content)
+    
+    return api_key, password
+
+
+def display_generated_credentials(api_key: str, password: str):
+    """Display generated credentials prominently to the user"""
+    print("\n" + "="*70)
+    print("🚀 FIRST-TIME SETUP: SECURE CREDENTIALS GENERATED!")
+    print("="*70)
+    print()
+    print("📋 Your unique credentials have been automatically generated:")
+    print()
+    print(f"   🔑 API KEY:      {api_key}")
+    print(f"   🔒 WEB PASSWORD: {password}")
+    print()
+    print("⚠️  IMPORTANT SECURITY NOTICE:")
+    print("   • These credentials are UNIQUE to this installation")
+    print("   • Save them securely - you'll need them to access the camera")
+    print("   • The WEB_PASSWORD is for the web interface login")
+    print("   • The API_KEY is for direct API access")
+    print("   • Credentials are saved in the .env file")
+    print()
+    print("💡 MANUAL CONFIGURATION:")
+    print("   • You can edit the .env file to use your own credentials")
+    print("   • Restart the application after making changes")
+    print()
+    print("🛡️  BACKUP RECOMMENDATION:")
+    print("   • Store these credentials in a password manager")
+    print("   • Keep a backup of the .env file in a secure location")
+    print()
+    print("✅ Setup complete! You can now start the camera system.")
+    print("="*70)
+    print()
+
+
+def ensure_secure_env_file():
+    """Ensure .env file exists with secure credentials"""
+    env_file = '.env'
+    
+    if not os.path.exists(env_file):
+        print("🔐 No configuration found. Generating secure credentials...")
+        api_key, password = create_env_file_with_secure_credentials()
+        display_generated_credentials(api_key, password)
+        return True
+    
+    return False
+
+
+def load_env_file():
+    """Load environment variables from .env file"""
+    env_file = '.env'
+    
+    if os.path.exists(env_file):
+        print(f"📄 Loading configuration from {env_file}")
+        with open(env_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip()
+    else:
+        raise FileNotFoundError("Configuration file .env not found")
+
+
 def load_config() -> AppConfig:
-    """Load and validate configuration"""
+    """Load and validate configuration with automatic secure credential generation"""
     try:
-        # Try to load .env file if it exists
-        env_file = '.env'
-        if os.path.exists(env_file):
-            print(f"📄 Loading configuration from {env_file}")
-            with open(env_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        os.environ[key.strip()] = value.strip()
-        else:
-            print("⚠️  No .env file found, using environment variables and defaults")
+        # Ensure .env file exists with secure credentials
+        first_run = ensure_secure_env_file()
+        
+        # Load environment variables from .env file
+        load_env_file()
         
         # Create configuration
         config = AppConfig.from_env()
@@ -173,6 +268,9 @@ def load_config() -> AppConfig:
             for error in errors:
                 print(f"   - {error}")
             raise ValueError("Invalid configuration")
+        
+        if not first_run:
+            print("✅ Configuration loaded successfully")
         
         return config
         

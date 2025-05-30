@@ -43,6 +43,51 @@ print_header() {
 ╚══════════════════════════════════════════════════════════════╝${NC}"
 }
 
+# Function to display current credentials
+display_current_credentials() {
+    print_status "Displaying current access credentials..."
+    
+    # Check if .env file exists
+    if [[ ! -f "$PROJECT_DIR/.env" ]]; then
+        print_warning "No .env file found. Please run setup script first."
+        return 1
+    fi
+    
+    # Extract credentials from .env file
+    local api_key
+    local web_password
+    
+    api_key=$(grep "^API_KEY=" "$PROJECT_DIR/.env" | cut -d'=' -f2 | tr -d '"')
+    web_password=$(grep "^WEB_PASSWORD=" "$PROJECT_DIR/.env" | cut -d'=' -f2 | tr -d '"')
+    
+    if [[ -z "$api_key" ]] || [[ -z "$web_password" ]]; then
+        print_warning "Credentials not found in .env file. Please run setup script first."
+        return 1
+    fi
+    
+    # Display credentials prominently
+    echo
+    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${PURPLE}🔑 CAMERA SYSTEM ACCESS CREDENTIALS${NC}"
+    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
+    echo
+    echo -e "${GREEN}📋 Your access credentials:${NC}"
+    echo
+    echo -e "   ${BLUE}🔑 API KEY:      ${NC}$api_key"
+    echo -e "   ${BLUE}🔒 WEB PASSWORD: ${NC}$web_password"
+    echo
+    echo -e "${YELLOW}💡 How to use these credentials:${NC}"
+    echo "   • WEB_PASSWORD: Login to the web interface at http://your-pi-ip:8003"
+    echo "   • API_KEY: For direct API access and automation"
+    echo
+    echo -e "${YELLOW}📝 Need to change credentials?${NC}"
+    echo "   • Edit the .env file in $PROJECT_DIR"
+    echo "   • Restart the service after changes"
+    echo
+    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
+    echo
+}
+
 # Function to check prerequisites
 check_prerequisites() {
     print_status "Checking prerequisites..."
@@ -321,40 +366,6 @@ EOF
     print_status "  $PROJECT_DIR/camera_status.sh  - Check status"
 }
 
-# Function to setup cloudflare tunnel service template
-setup_cloudflare_template() {
-    print_status "Creating Cloudflare tunnel service template..."
-    
-    # Create template for cloudflare service
-    sudo tee /etc/systemd/system/cloudflared.service > /dev/null << 'EOF'
-[Unit]
-Description=Cloudflare Tunnel
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/cloudflared tunnel run --token YOUR_TOKEN_HERE
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    print_success "Cloudflare tunnel service template created"
-    print_warning "⚠️  IMPORTANT: Edit the tunnel service to add your token:"
-    print_status "   1. Get your tunnel token from Cloudflare Dashboard"
-    print_status "   2. Edit: sudo nano /etc/systemd/system/cloudflared.service"
-    print_status "   3. Replace 'YOUR_TOKEN_HERE' with your actual token"
-    print_status "   4. Enable: sudo systemctl enable cloudflared"
-    print_status "   5. Start: sudo systemctl start cloudflared"
-    print_status ""
-    print_status "See docs/DEPLOYMENT.md for complete Cloudflare setup instructions"
-}
-
 # Function to show reboot information
 show_reboot_info() {
     print_status "Checking if reboot is recommended..."
@@ -404,6 +415,9 @@ install_services() {
     # Check prerequisites
     check_prerequisites
     
+    # Display credentials to user
+    display_current_credentials
+    
     # Create and configure services
     create_camera_service
     enable_camera_service
@@ -414,9 +428,6 @@ install_services() {
     
     # Create management scripts
     create_management_scripts
-    
-    # Setup cloudflare template
-    setup_cloudflare_template
     
     print_success "🎉 Service installation completed!"
     echo
@@ -438,6 +449,7 @@ case "${1:-install}" in
         ;;
     "restart")
         print_status "Restarting camera service..."
+        display_current_credentials
         systemctl --user restart ${SERVICE_NAME}.service
         sleep 3
         show_service_status
@@ -450,6 +462,7 @@ case "${1:-install}" in
         ;;
     "start")
         print_status "Starting camera service..."
+        display_current_credentials
         start_camera_service
         test_camera_service
         ;;

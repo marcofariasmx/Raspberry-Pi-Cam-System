@@ -15,7 +15,7 @@ import threading
 from datetime import datetime
 from typing import Optional, Tuple
 
-from config import AppConfig
+from src.config import AppConfig
 
 # Import picamera2 - graceful handling for development environments
 try:

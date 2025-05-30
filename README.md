@@ -51,7 +51,7 @@ A modern, secure camera web application for Raspberry Pi that provides live vide
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/yourusername/Raspberry-Pi-Cam-System.git
+git clone https://github.com/marcofariasmx/Raspberry-Pi-Cam-System.git
 cd Raspberry-Pi-Cam-System
 ```
 
@@ -78,7 +78,8 @@ This configures the application to start automatically on boot.
 
 ### 4. Access Your Camera
 - **Local Access**: `http://YOUR_PI_IP:8003`
-- **Default Password**: `camera123` (change this in .env file!)
+- **Login**: Use the secure password displayed during first-time setup
+- **Credentials**: Automatically generated and saved to `.env` file
 
 ### 5. Easy Updates (Future)
 ```bash
@@ -140,6 +141,94 @@ PORT=8003
 ```
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for complete configuration options.
+
+## 🔐 Automatic Security Setup
+
+**NEW: Zero-Configuration Security!** This application automatically generates unique, cryptographically secure credentials on first run.
+
+### 🚀 First-Time Setup Experience
+
+When you first run the application (or if no `.env` file exists), you'll see:
+
+```
+======================================================================
+🚀 FIRST-TIME SETUP: SECURE CREDENTIALS GENERATED!
+======================================================================
+
+📋 Your unique credentials have been automatically generated:
+
+   🔑 API KEY:      cam_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+   🔒 WEB PASSWORD: K9#mP2$qR8@vL5!n
+
+⚠️  IMPORTANT SECURITY NOTICE:
+   • These credentials are UNIQUE to this installation
+   • Save them securely - you'll need them to access the camera
+   • The WEB_PASSWORD is for the web interface login
+   • The API_KEY is for direct API access
+   • Credentials are saved in the .env file
+
+🛡️  BACKUP RECOMMENDATION:
+   • Store these credentials in a password manager
+   • Keep a backup of the .env file in a secure location
+
+✅ Setup complete! You can now start the camera system.
+======================================================================
+```
+
+### 🛡️ Security Benefits
+
+✅ **No Default Passwords** - Eliminates the #1 IoT security risk  
+✅ **Unique Per Installation** - Each deployment has different credentials  
+✅ **Cryptographically Secure** - Generated using Python's `secrets` module  
+✅ **Automatic HTTPS Detection** - Secure cookies for HTTPS, regular cookies for HTTP  
+✅ **Photo Access Protection** - All captured images require authentication  
+✅ **Session-Based Web Auth** - No API keys exposed to browsers  
+
+### 🔑 Credential Details
+
+- **API Key Format**: `cam_` + 32 random hexadecimal characters
+- **Password Format**: 16 characters with letters, numbers, and symbols
+- **Storage**: Automatically saved to `.env` file
+- **Usage**: API key for direct API access, password for web interface
+
+### ✏️ Manual Configuration
+
+If you prefer to use your own credentials instead of auto-generated ones:
+
+```bash
+# Edit the .env file directly
+nano .env
+
+# Change the credentials to your preferred values:
+API_KEY=your_custom_api_key_here
+WEB_PASSWORD=your_custom_password_here
+
+# Save and restart the application
+python3 src/main.py
+# OR
+systemctl --user restart camera-app.service
+```
+
+**Benefits of manual configuration:**
+- Use memorable passwords
+- Consistent credentials across deployments
+- Integration with existing credential management systems
+
+### 🔄 Regenerating Credentials
+
+To generate new credentials:
+
+```bash
+# Remove existing configuration
+rm .env
+
+# Restart application (will generate new credentials)
+python3 src/main.py
+# OR
+systemctl --user restart camera-app.service
+```
+
+**Important**: Save the new credentials before they scroll off screen!
 
 ## 🔧 Management Commands
 
