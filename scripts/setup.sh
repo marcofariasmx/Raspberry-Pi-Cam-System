@@ -260,6 +260,19 @@ configure_environment() {
         print_status "Using existing API key configuration"
     fi
     
+    # Only update web password if using default value
+    if grep -q "your_secure_password_here" .env; then
+        # Generate secure web password
+        local web_password
+        web_password=$(openssl rand -base64 12 | tr -d "=+/" | cut -c1-16)
+        
+        # Update .env file
+        sed -i "s/your_secure_password_here/${web_password}/" .env
+        print_success "Generated secure web password"
+    else
+        print_status "Using existing web password configuration"
+    fi
+    
     print_success "Environment configuration ready"
     print_status "You can modify settings in .env file:"
     print_status "  - API_KEY: Authentication key for API access"

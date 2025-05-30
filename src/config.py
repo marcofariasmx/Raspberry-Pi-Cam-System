@@ -116,8 +116,8 @@ class AppConfig:
         if not self.api_key or len(self.api_key) < 8:
             errors.append("API_KEY must be at least 8 characters long")
         
-        if not self.web_password or len(self.web_password) < 6:
-            errors.append("WEB_PASSWORD must be at least 6 characters long")
+        if not self.web_password:
+            errors.append("WEB_PASSWORD is required")
         
         # Validate camera settings
         if self.camera_fallback_width < 320 or self.camera_fallback_height < 240:
