@@ -30,6 +30,7 @@ class AppConfig:
     # Memory management
     buffer_count_auto: bool
     buffer_count_fallback: int
+    low_resource_mode: bool
     
     # Camera orientation
     camera_hflip: bool
@@ -89,6 +90,7 @@ class AppConfig:
             # Memory management
             buffer_count_auto=get_bool('BUFFER_COUNT_AUTO', True),
             buffer_count_fallback=get_int('BUFFER_COUNT_FALLBACK', 2),
+            low_resource_mode=get_bool('LOW_RESOURCE_MODE', False),
             
             # Camera orientation
             camera_hflip=get_bool('CAMERA_HFLIP', True),
@@ -143,7 +145,7 @@ class AppConfig:
         print(f"   🔒 Security: API key set, Password: {'*' * len(self.web_password)}")
         print(f"   📷 Camera: Auto-detect={self.camera_auto_detect}, Fallback={self.camera_fallback_width}x{self.camera_fallback_height}")
         print(f"   🎥 Stream: {self.stream_width}x{self.stream_height}, Quality={self.stream_quality}")
-        print(f"   🧠 Memory: Auto-buffer={self.buffer_count_auto}, Fallback={self.buffer_count_fallback}")
+        print(f"   🧠 Memory: Auto-buffer={self.buffer_count_auto}, Fallback={self.buffer_count_fallback}, Low-resource={self.low_resource_mode}")
         print(f"   🔄 Transform: HFlip={self.camera_hflip}, VFlip={self.camera_vflip}")
         print(f"   🌐 Server: {self.host}:{self.port}, Debug={self.debug}")
         print(f"   📁 Photos: {self.photos_dir}, Max={self.max_photos}")
