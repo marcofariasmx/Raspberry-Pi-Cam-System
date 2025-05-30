@@ -402,32 +402,41 @@
 
     <script>
         let isStreaming = false;
-        let apiKey = null;
         let isAuthenticated = false;
         let statusUpdateInterval = null;
+        let streamingToken = null;
 
-        // API helper function
-        async function apiCall(endpoint, options = {}) {
-            if (!apiKey) {
-                throw new Error('Not authenticated');
-            }
-            
+        // API helper function for session-based calls
+        async function sessionApiCall(endpoint, options = {}) {
             const defaultOptions = {
                 headers: {
-                    'Authorization': `Bearer ${apiKey}`,
                     'Content-Type': 'application/json',
                     ...options.headers
-                }
+                },
+                credentials: 'same-origin' // Include cookies
             };
             
             const response = await fetch(endpoint, { ...options, ...defaultOptions });
             
             if (!response.ok) {
+                if (response.status === 401) {
+                    // Session expired, redirect to login
+                    showSessionExpired();
+                    return null;
+                }
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.detail || `HTTP ${response.status}`);
             }
             
             return response;
+        }
+
+        // Session expired handler
+        function showSessionExpired() {
+            showStatus('🔒 Session expired, please login again', 'error');
+            setTimeout(() => {
+                logout();
+            }, 2000);
         }
 
         // Login function
@@ -450,14 +459,19 @@
                 const response = await fetch('/api/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({ password: password })
                 });
                 
                 const data = await response.json();
                 
                 if (response.ok && data.status === 'success') {
-                    apiKey = data.api_key;
                     isAuthenticated = true;
+                    
+                    // For streaming, we'll need to get a token
+                    // Note: We still need the API key for video streaming since it uses query params
+                    // We'll request it from a session endpoint
+                    await getStreamingToken();
                     
                     // Hide login, show main app
                     document.getElementById('loginScreen').classList.add('hidden');
@@ -479,6 +493,20 @@
             }
         }
 
+        // Get streaming token for video stream
+        async function getStreamingToken() {
+            try {
+                const response = await sessionApiCall('/api/session/streaming-token');
+                if (response) {
+                    const data = await response.json();
+                    streamingToken = data.token;
+                }
+            } catch (error) {
+                console.warn('Could not get streaming token:', error);
+                // Streaming may not be available, but other features still work
+            }
+        }
+
         function showLoginStatus(message, type) {
             const statusDiv = document.getElementById('loginStatus');
             statusDiv.className = `status ${type}`;
@@ -496,9 +524,16 @@
         }
 
         // Logout function
-        function logout() {
-            apiKey = null;
+        async function logout() {
+            try {
+                // Call logout endpoint to invalidate session
+                await sessionApiCall('/api/auth/logout', { method: 'POST' });
+            } catch (error) {
+                console.warn('Logout API call failed:', error);
+            }
+            
             isAuthenticated = false;
+            streamingToken = null;
             
             // Clear intervals
             if (statusUpdateInterval) {
@@ -521,7 +556,9 @@
         // Update camera status
         async function updateCameraStatus() {
             try {
-                const response = await apiCall('/api/camera/status');
+                const response = await sessionApiCall('/api/session/camera/status');
+                if (!response) return; // Session expired
+                
                 const data = await response.json();
                 
                 const statusDiv = document.getElementById('status');
@@ -552,7 +589,9 @@
             try {
                 showStatus('📸 Capturing photo...', 'info');
                 
-                const response = await apiCall('/api/camera/capture');
+                const response = await sessionApiCall('/api/session/camera/capture');
+                if (!response) return; // Session expired
+                
                 const data = await response.json();
                 
                 if (data.status === 'success') {
@@ -568,14 +607,19 @@
 
         // Start video stream
         function startStream() {
-            if (isStreaming || !apiKey) return;
+            if (isStreaming || !streamingToken) {
+                if (!streamingToken) {
+                    showStatus('❌ Streaming not available - no token', 'error');
+                }
+                return;
+            }
             
             const img = document.getElementById('cameraStream');
             const placeholder = document.getElementById('streamPlaceholder');
             
             showStatus('🎥 Starting video stream...', 'info');
             
-            img.src = `/api/camera/stream?token=${apiKey}&t=${new Date().getTime()}`;
+            img.src = `/api/camera/stream?token=${streamingToken}&t=${new Date().getTime()}`;
             img.onload = () => {
                 img.style.display = 'block';
                 placeholder.style.display = 'none';
@@ -595,7 +639,8 @@
             if (!isStreaming) return;
             
             try {
-                await apiCall('/api/camera/stream/stop', { method: 'POST' });
+                const response = await sessionApiCall('/api/session/camera/stream/stop', { method: 'POST' });
+                if (!response) return; // Session expired
                 
                 const img = document.getElementById('cameraStream');
                 const placeholder = document.getElementById('streamPlaceholder');
@@ -617,7 +662,9 @@
         // Load and display photos
         async function loadPhotos() {
             try {
-                const response = await apiCall('/api/photos');
+                const response = await sessionApiCall('/api/session/photos');
+                if (!response) return; // Session expired
+                
                 const data = await response.json();
                 
                 const grid = document.getElementById('photosGrid');
@@ -663,9 +710,6 @@
                 }
             });
         });
-
-        // Initialize API key from template
-        const templateApiKey = "{{ api_key }}";
     </script>
 </body>
 </html>
