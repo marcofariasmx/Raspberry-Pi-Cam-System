@@ -1,0 +1,13 @@
+# Main Python packages for Raspberry Pi Camera Web App
+# Only main packages with pinned versions to avoid compilation issues
+
+fastapi==0.115.12
+uvicorn==0.34.2
+python-multipart==0.0.20
+jinja2==3.1.6
+aiofiles==24.1.0
+
+# System packages (installed via apt, not pip):
+# python3-picamera2
+# python3-opencv
+# python3-venv

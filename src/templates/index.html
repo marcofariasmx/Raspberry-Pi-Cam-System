@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi Camera System</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            text-align: center;
+        }
+
+        .login-container h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .login-container p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .btn {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
+        .btn-success { background: linear-gradient(135deg, #56ccf2, #2f80ed); color: white; }
+        .btn-danger { background: linear-gradient(135deg, #ff6b6b, #ee5a52); color: white; }
+        .btn-secondary { background: linear-gradient(135deg, #a8a8a8, #7f7f7f); color: white; }
+        .btn-warning { background: linear-gradient(135deg, #ffa726, #ff7043); color: white; }
+
+        .camera-container {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .camera-stream {
+            max-width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            background: #f0f0f0;
+        }
+
+        .stream-placeholder {
+            padding: 60px 20px;
+            background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+            border-radius: 15px;
+            border: 2px dashed #ccc;
+        }
+
+        .stream-placeholder h3 {
+            color: #555;
+            margin-bottom: 10px;
+            font-size: 1.5em;
+        }
+
+        .stream-placeholder p {
+            color: #777;
+        }
+
+        .status {
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            font-weight: 500;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .status.success {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: linear-gradient(135deg, #d1ecf1, #bee5eb);
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .photos-section {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .photos-section h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+
+        .photos-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .photo-card {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .photo-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .photo-card img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+        }
+
+        .photo-info {
+            padding: 15px;
+        }
+
+        .photo-info .filename {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .photo-info .details {
+            font-size: 0.9em;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+            background: white;
+        }
+
+        .form-group input:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .hidden { display: none; }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .stat-card .label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .controls {
+                grid-template-columns: 1fr;
+            }
+
+            .logout-btn {
+                position: relative;
+                top: auto;
+                right: auto;
+                margin-top: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="login-container">
+        <h1>🔒 Camera Access</h1>
+        <p>Enter your password to access the Raspberry Pi camera system</p>
+        
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" placeholder="Enter your password" />
+        </div>
+        
+        <button class="btn btn-primary" onclick="login()" style="width: 100%;">
+            <span id="loginSpinner" class="loading hidden"></span>
+            <span id="loginText">🔑 Login</span>
+        </button>
+        
+        <div id="loginStatus" class="status" style="display: none;"></div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="mainApp" class="container hidden">
+        <div class="header">
+            <h1>📷 Raspberry Pi Camera System</h1>
+            <p>Secure camera streaming and photo capture with Picamera2</p>
+            <button class="btn btn-secondary logout-btn" onclick="logout()">
+                🚪 Logout
+            </button>
+            <div id="status" class="status"></div>
+        </div>
+
+        <!-- Statistics Bar -->
+        <div class="stats-bar">
+            <div class="stat-card">
+                <div id="photoCount" class="value">-</div>
+                <div class="label">Photos Captured</div>
+            </div>
+            <div class="stat-card">
+                <div id="streamStatus" class="value">●</div>
+                <div class="label">Stream Status</div>
+            </div>
+            <div class="stat-card">
+                <div id="cameraModule" class="value">-</div>
+                <div class="label">Camera Module</div>
+            </div>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="controls">
+            <button class="btn btn-success" onclick="capturePhoto()">
+                📸 Capture Photo
+            </button>
+            <button class="btn btn-primary" onclick="startStream()">
+                🎥 Start Stream
+            </button>
+            <button class="btn btn-danger" onclick="stopStream()">
+                ⏹️ Stop Stream
+            </button>
+            <button class="btn btn-warning" onclick="loadPhotos()">
+                🖼️ Refresh Photos
+            </button>
+        </div>
+
+        <!-- Camera Stream -->
+        <div class="camera-container">
+            <img id="cameraStream" class="camera-stream" style="display:none;" />
+            <div id="streamPlaceholder" class="stream-placeholder">
+                <h3>📷 Camera Stream</h3>
+                <p>Click "Start Stream" to begin live video feed</p>
+            </div>
+        </div>
+
+        <!-- Photos Section -->
+        <div class="photos-section">
+            <h3>📸 Captured Photos</h3>
+            <div id="photosGrid" class="photos-grid">
+                <p>Loading photos...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isStreaming = false;
+        let apiKey = null;
+        let isAuthenticated = false;
+        let statusUpdateInterval = null;
+
+        // API helper function
+        async function apiCall(endpoint, options = {}) {
+            if (!apiKey) {
+                throw new Error('Not authenticated');
+            }
+            
+            const defaultOptions = {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            };
+            
+            const response = await fetch(endpoint, { ...options, ...defaultOptions });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}`);
+            }
+            
+            return response;
+        }
+
+        // Login function
+        async function login() {
+            const password = document.getElementById('password').value;
+            const statusDiv = document.getElementById('loginStatus');
+            const spinner = document.getElementById('loginSpinner');
+            const text = document.getElementById('loginText');
+            
+            if (!password) {
+                showLoginStatus('Please enter a password', 'error');
+                return;
+            }
+            
+            // Show loading state
+            spinner.classList.remove('hidden');
+            text.textContent = 'Authenticating...';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'success') {
+                    apiKey = data.api_key;
+                    isAuthenticated = true;
+                    
+                    // Hide login, show main app
+                    document.getElementById('loginScreen').classList.add('hidden');
+                    document.getElementById('mainApp').classList.remove('hidden');
+                    
+                    // Initialize main app
+                    await initializeApp();
+                    
+                } else {
+                    throw new Error(data.detail || 'Login failed');
+                }
+                
+            } catch (error) {
+                showLoginStatus(`❌ ${error.message}`, 'error');
+            } finally {
+                // Reset button state
+                spinner.classList.add('hidden');
+                text.textContent = '🔑 Login';
+            }
+        }
+
+        function showLoginStatus(message, type) {
+            const statusDiv = document.getElementById('loginStatus');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+
+        // Initialize application after login
+        async function initializeApp() {
+            await updateCameraStatus();
+            await loadPhotos();
+            
+            // Start periodic status updates
+            statusUpdateInterval = setInterval(updateCameraStatus, 10000);
+        }
+
+        // Logout function
+        function logout() {
+            apiKey = null;
+            isAuthenticated = false;
+            
+            // Clear intervals
+            if (statusUpdateInterval) {
+                clearInterval(statusUpdateInterval);
+                statusUpdateInterval = null;
+            }
+            
+            // Stop streaming
+            if (isStreaming) {
+                stopStream();
+            }
+            
+            // Reset UI
+            document.getElementById('loginScreen').classList.remove('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+            document.getElementById('password').value = '';
+            document.getElementById('loginStatus').style.display = 'none';
+        }
+
+        // Update camera status
+        async function updateCameraStatus() {
+            try {
+                const response = await apiCall('/api/camera/status');
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('status');
+                if (data.available) {
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = `✅ Camera ready (${data.library}) - ${data.module}`;
+                    
+                    // Update stats
+                    document.getElementById('cameraModule').textContent = data.module || 'Unknown';
+                    document.getElementById('streamStatus').textContent = data.streaming ? '🔴' : '⚫';
+                    document.getElementById('streamStatus').style.color = data.streaming ? '#ff4444' : '#666';
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = '❌ Camera not available';
+                    document.getElementById('cameraModule').textContent = 'N/A';
+                    document.getElementById('streamStatus').textContent = '⚫';
+                }
+            } catch (error) {
+                console.error('Status check failed:', error);
+                const statusDiv = document.getElementById('status');
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '❌ Connection failed';
+            }
+        }
+
+        // Capture photo
+        async function capturePhoto() {
+            try {
+                showStatus('📸 Capturing photo...', 'info');
+                
+                const response = await apiCall('/api/camera/capture');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    showStatus(`✅ Photo captured: ${data.filename}`, 'success');
+                    await loadPhotos(); // Refresh photos
+                } else {
+                    throw new Error(data.message || 'Capture failed');
+                }
+            } catch (error) {
+                showStatus(`❌ Capture failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Start video stream
+        function startStream() {
+            if (isStreaming || !apiKey) return;
+            
+            const img = document.getElementById('cameraStream');
+            const placeholder = document.getElementById('streamPlaceholder');
+            
+            showStatus('🎥 Starting video stream...', 'info');
+            
+            img.src = `/api/camera/stream?token=${apiKey}&t=${new Date().getTime()}`;
+            img.onload = () => {
+                img.style.display = 'block';
+                placeholder.style.display = 'none';
+                isStreaming = true;
+                showStatus('🎥 Live stream active', 'success');
+                document.getElementById('streamStatus').textContent = '🔴';
+                document.getElementById('streamStatus').style.color = '#ff4444';
+            };
+            
+            img.onerror = () => {
+                showStatus('❌ Failed to start stream', 'error');
+            };
+        }
+
+        // Stop video stream
+        async function stopStream() {
+            if (!isStreaming) return;
+            
+            try {
+                await apiCall('/api/camera/stream/stop', { method: 'POST' });
+                
+                const img = document.getElementById('cameraStream');
+                const placeholder = document.getElementById('streamPlaceholder');
+                
+                img.style.display = 'none';
+                img.src = '';
+                placeholder.style.display = 'block';
+                isStreaming = false;
+                
+                showStatus('⏹️ Stream stopped', 'success');
+                document.getElementById('streamStatus').textContent = '⚫';
+                document.getElementById('streamStatus').style.color = '#666';
+            } catch (error) {
+                console.error('Failed to stop stream:', error);
+                showStatus('⚠️ Error stopping stream', 'error');
+            }
+        }
+
+        // Load and display photos
+        async function loadPhotos() {
+            try {
+                const response = await apiCall('/api/photos');
+                const data = await response.json();
+                
+                const grid = document.getElementById('photosGrid');
+                
+                if (data.photos && data.photos.length > 0) {
+                    grid.innerHTML = data.photos.map(photo => `
+                        <div class="photo-card">
+                            <img src="${photo.url}" alt="${photo.filename}" loading="lazy" />
+                            <div class="photo-info">
+                                <div class="filename">${photo.filename}</div>
+                                <div class="details">
+                                    <div>${new Date(photo.created).toLocaleString()}</div>
+                                    <div>${(photo.size / 1024).toFixed(1)} KB</div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    // Update photo count
+                    document.getElementById('photoCount').textContent = data.photos.length;
+                } else {
+                    grid.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No photos captured yet. Click "Capture Photo" to take your first picture!</p>';
+                    document.getElementById('photoCount').textContent = '0';
+                }
+            } catch (error) {
+                console.error('Failed to load photos:', error);
+                document.getElementById('photosGrid').innerHTML = '<p style="text-align: center; color: #ff4444; padding: 40px;">Failed to load photos</p>';
+            }
+        }
+
+        // Show status message
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+        }
+
+        // Enter key support for password field
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('password').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    login();
+                }
+            });
+        });
+
+        // Initialize API key from template
+        const templateApiKey = "{{ api_key }}";
+    </script>
+</body>
+</html>
