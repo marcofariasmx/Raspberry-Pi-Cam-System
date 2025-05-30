@@ -347,7 +347,18 @@ class CameraManager:
             else:
                 quality = self.config.stream_quality
             
-            self.jpeg_encoder = JpegEncoder(q=quality)
+            # Create JPEG encoder with streaming optimizations
+            try:
+                # Streaming-optimized configuration for better performance and error resilience
+                self.jpeg_encoder = JpegEncoder(
+                    q=quality,                   # Quality setting
+                    restart=16                   # Restart markers every 16 MCUs for error resilience and streaming efficiency
+                )
+                print(f"🎯 JPEG encoder optimized: quality={quality}, restart_markers=16")
+            except TypeError:
+                # Fallback for older Picamera2 versions that don't support restart parameter
+                self.jpeg_encoder = JpegEncoder(q=quality)
+                print(f"📷 JPEG encoder basic: quality={quality} (restart markers not supported)")
             
             # Start recording from lores stream for streaming
             self.camera_device.start_recording(
@@ -418,6 +429,7 @@ class CameraManager:
             status["frames_written"] = self.stream_output.get_frame_count()
             status["max_buffer_frames"] = self.stream_output.max_frames
             status["streaming_mode"] = "universal_latest_frame_broadcast"
+            status["encoder_optimized"] = "restart_markers" if self.jpeg_encoder else False
         
         return status
     
