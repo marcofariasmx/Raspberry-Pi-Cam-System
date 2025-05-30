@@ -13,8 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from config import get_config, AppConfig
-from camera_manager import CameraManager
+from src.config import get_config, AppConfig
+from src.camera_manager import CameraManager
 
 # Initialize configuration
 config = get_config()

@@ -321,39 +321,7 @@ EOF
     print_status "  $PROJECT_DIR/camera_status.sh  - Check status"
 }
 
-# Function to setup cloudflare tunnel service template
-setup_cloudflare_template() {
-    print_status "Creating Cloudflare tunnel service template..."
-    
-    # Create template for cloudflare service
-    sudo tee /etc/systemd/system/cloudflared.service > /dev/null << 'EOF'
-[Unit]
-Description=Cloudflare Tunnel
-After=network.target
 
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/cloudflared tunnel run --token YOUR_TOKEN_HERE
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    print_success "Cloudflare tunnel service template created"
-    print_warning "⚠️  IMPORTANT: Edit the tunnel service to add your token:"
-    print_status "   1. Get your tunnel token from Cloudflare Dashboard"
-    print_status "   2. Edit: sudo nano /etc/systemd/system/cloudflared.service"
-    print_status "   3. Replace 'YOUR_TOKEN_HERE' with your actual token"
-    print_status "   4. Enable: sudo systemctl enable cloudflared"
-    print_status "   5. Start: sudo systemctl start cloudflared"
-    print_status ""
-    print_status "See docs/DEPLOYMENT.md for complete Cloudflare setup instructions"
-}
 
 # Function to show reboot information
 show_reboot_info() {
@@ -414,9 +382,6 @@ install_services() {
     
     # Create management scripts
     create_management_scripts
-    
-    # Setup cloudflare template
-    setup_cloudflare_template
     
     print_success "🎉 Service installation completed!"
     echo
