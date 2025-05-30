@@ -51,7 +51,7 @@ A modern, secure camera web application for Raspberry Pi that provides live vide
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/yourusername/Raspberry-Pi-Cam-System.git
+git clone https://github.com/marcofariasmx/Raspberry-Pi-Cam-System.git
 cd Raspberry-Pi-Cam-System
 ```
 
