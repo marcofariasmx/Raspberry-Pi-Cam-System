@@ -4,10 +4,12 @@ FastAPI-based web app for camera streaming and photo capture with secure access
 """
 
 import os
-from datetime import datetime
-from typing import Optional
+import secrets
+import time
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Depends, Query
+from fastapi import FastAPI, HTTPException, Request, Depends, Query, Cookie
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -29,6 +31,74 @@ app = FastAPI(
 
 # Security scheme
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
+
+# Session Management
+sessions: Dict[str, Dict[str, Any]] = {}
+SESSION_EXPIRE_HOURS = 24
+
+def generate_session_token() -> str:
+    """Generate a secure session token"""
+    return secrets.token_urlsafe(32)
+
+def create_session(user_id: str = "web_user") -> str:
+    """Create a new session and return session token"""
+    token = generate_session_token()
+    expiry = datetime.now() + timedelta(hours=SESSION_EXPIRE_HOURS)
+    
+    sessions[token] = {
+        "user_id": user_id,
+        "created": datetime.now(),
+        "expires": expiry,
+        "last_access": datetime.now()
+    }
+    
+    return token
+
+def get_session(token: str) -> Optional[Dict[str, Any]]:
+    """Get session data if valid, None if expired or not found"""
+    if token not in sessions:
+        return None
+    
+    session = sessions[token]
+    
+    # Check if session has expired
+    if datetime.now() > session["expires"]:
+        del sessions[token]
+        return None
+    
+    # Update last access time
+    session["last_access"] = datetime.now()
+    return session
+
+def cleanup_expired_sessions():
+    """Remove expired sessions"""
+    now = datetime.now()
+    expired_tokens = [
+        token for token, session in sessions.items()
+        if now > session["expires"]
+    ]
+    
+    for token in expired_tokens:
+        del sessions[token]
+
+def verify_session(session_token: Optional[str] = Cookie(None, alias="session_token")) -> Dict[str, Any]:
+    """Verify session from cookie"""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="No session token")
+    
+    session = get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    return session
+
+def verify_session_optional(session_token: Optional[str] = Cookie(None, alias="session_token")) -> Optional[Dict[str, Any]]:
+    """Verify session from cookie (optional - returns None if no valid session)"""
+    if not session_token:
+        return None
+    
+    return get_session(session_token)
 
 # Initialize camera manager
 camera_manager: Optional[CameraManager] = None
@@ -50,12 +120,28 @@ def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)
         raise HTTPException(status_code=401, detail="Invalid API key")
     return credentials.credentials
 
+def verify_api_key_optional(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional)):
+    """Verify API key from Authorization header (optional)"""
+    if not credentials:
+        return None
+    if credentials.credentials != config.api_key:
+        return None
+    return credentials.credentials
 
 def verify_token_param(token: str = Query(...)):
     """Verify API key from query parameter (for streaming endpoints)"""
     if token != config.api_key:
         raise HTTPException(status_code=403, detail="Invalid token")
     return token
+
+def verify_api_or_session(
+    api_key: Optional[str] = Depends(verify_api_key_optional),
+    session: Optional[Dict[str, Any]] = Depends(verify_session_optional)
+):
+    """Verify either API key or session authentication"""
+    if not api_key and not session:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return {"api_key": api_key, "session": session}
 
 
 @app.on_event("startup")
@@ -97,24 +183,40 @@ async def shutdown_event():
 async def home(request: Request):
     """Serve main web interface"""
     return templates.TemplateResponse("index.html", {
-        "request": request,
-        "api_key": config.api_key
+        "request": request
     })
 
 
 @app.post("/api/auth/login")
 async def web_login(request: Request):
-    """Authenticate with web password and return API key"""
+    """Authenticate with web password and return session"""
     try:
         data = await request.json()
         password = data.get("password", "")
         
         if password == config.web_password:
-            return {
+            # Create new session
+            session_token = create_session()
+            
+            # Cleanup expired sessions periodically
+            cleanup_expired_sessions()
+            
+            response = JSONResponse({
                 "status": "success",
-                "api_key": config.api_key,
                 "message": "Login successful"
-            }
+            })
+            
+            # Set secure session cookie
+            response.set_cookie(
+                key="session_token",
+                value=session_token,
+                httponly=True,
+                secure=request.url.scheme == "https",  # Auto-detect: True for HTTPS, False for HTTP
+                samesite="lax",
+                max_age=SESSION_EXPIRE_HOURS * 3600
+            )
+            
+            return response
         else:
             raise HTTPException(status_code=401, detail="Invalid password")
             
@@ -122,6 +224,30 @@ async def web_login(request: Request):
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail="Invalid request format")
+
+
+@app.post("/api/auth/logout")
+async def web_logout(session: Dict[str, Any] = Depends(verify_session)):
+    """Logout and invalidate session"""
+    # Find and remove the session
+    session_token = None
+    for token, sess_data in sessions.items():
+        if sess_data == session:
+            session_token = token
+            break
+    
+    if session_token:
+        del sessions[session_token]
+    
+    response = JSONResponse({
+        "status": "success",
+        "message": "Logout successful"
+    })
+    
+    # Clear session cookie
+    response.delete_cookie(key="session_token")
+    
+    return response
 
 
 @app.get("/health")
@@ -299,10 +425,10 @@ async def delete_photo(filename: str, api_key: str = Depends(verify_api_key)):
         raise HTTPException(status_code=500, detail=f"Failed to delete photo: {str(e)}")
 
 
-# Photo serving endpoint
+# Photo serving endpoint - now with authentication
 @app.get(f"/{config.photos_dir}/{{filename}}")
-async def serve_photo(filename: str):
-    """Serve captured photos (public access for simplicity)"""
+async def serve_photo(filename: str, auth: Dict[str, Any] = Depends(verify_api_or_session)):
+    """Serve captured photos (requires authentication)"""
     # Basic security check
     if '..' in filename or '/' in filename or '\\' in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -313,6 +439,128 @@ async def serve_photo(filename: str):
         raise HTTPException(status_code=404, detail="Photo not found")
     
     return FileResponse(filepath)
+
+
+# Session-based API endpoints for web interface
+
+@app.get("/api/session/camera/status")
+async def session_camera_status(session: Dict[str, Any] = Depends(verify_session)):
+    """Get camera status and capabilities (session-based)"""
+    if not camera_manager:
+        return {
+            "status": "unavailable",
+            "error": "Camera manager not initialized",
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    status = camera_manager.get_status()
+    status.update({
+        "timestamp": datetime.now().isoformat(),
+        "library": "picamera2"
+    })
+    
+    return status
+
+
+@app.get("/api/session/camera/capture")
+async def session_capture_photo(session: Dict[str, Any] = Depends(verify_session)):
+    """Capture high-resolution photo (session-based)"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        success, message, filename = camera_manager.capture_photo()
+        
+        if success:
+            # Get file info
+            filepath = os.path.join(config.photos_dir, filename)
+            file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
+            
+            return {
+                "status": "success",
+                "message": message,
+                "filename": filename,
+                "filepath": filepath,
+                "size": file_size,
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=500, detail=message)
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+@app.post("/api/session/camera/stream/stop")
+async def session_stop_stream(session: Dict[str, Any] = Depends(verify_session)):
+    """Stop video streaming (session-based)"""
+    if not camera_manager:
+        return {"status": "success", "message": "No camera manager available"}
+    
+    try:
+        success = camera_manager.stop_streaming()
+        return {
+            "status": "success" if success else "error",
+            "message": "Stream stopped" if success else "Failed to stop stream",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error stopping stream: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }
+
+
+@app.get("/api/session/streaming-token")
+async def get_streaming_token(session: Dict[str, Any] = Depends(verify_session)):
+    """Get API key for video streaming (session-based)"""
+    return {
+        "status": "success",
+        "token": config.api_key,
+        "message": "Streaming token provided"
+    }
+
+
+@app.get("/api/session/photos")
+async def session_list_photos(session: Dict[str, Any] = Depends(verify_session)):
+    """List all captured photos with metadata (session-based)"""
+    try:
+        photos = []
+        
+        if os.path.exists(config.photos_dir):
+            for filename in os.listdir(config.photos_dir):
+                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    filepath = os.path.join(config.photos_dir, filename)
+                    
+                    if os.path.exists(filepath):
+                        stat = os.stat(filepath)
+                        photos.append({
+                            "filename": filename,
+                            "size": stat.st_size,
+                            "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "url": f"/{config.photos_dir}/{filename}"
+                        })
+        
+        # Sort by creation time (newest first)
+        photos.sort(key=lambda x: x["created"], reverse=True)
+        
+        # Apply max photos limit if configured
+        if config.max_photos > 0:
+            photos = photos[:config.max_photos]
+        
+        return {
+            "status": "success",
+            "count": len(photos),
+            "photos": photos,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list photos: {str(e)}")
 
 
 # Configuration endpoint (for debugging)
