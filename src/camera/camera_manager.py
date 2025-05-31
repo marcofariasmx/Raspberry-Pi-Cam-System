@@ -350,7 +350,7 @@ class CameraManager:
         if self.network_monitor:
             network_status = self.network_monitor.get_current_network_status()
             status["network_status"] = network_status["status"]
-            status["network_monitoring"] = network_status["monitoring_active"]
+            status["network_monitoring"] = network_status.get("monitoring_active", False)
         
         return status
     
