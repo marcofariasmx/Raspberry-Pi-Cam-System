@@ -512,9 +512,12 @@ class CameraManager:
             self.consecutive_good_periods = 0
     
     def _adapt_quality(self, metrics: dict):
-        """Adapt JPEG quality based on network performance"""
+        """Adapt JPEG quality based on network performance - FIXED VERSION"""
         network_slow = metrics.get("network_slow", False)
         avg_delivery = metrics.get("average_delivery_time", 0.0)
+        
+        # Initialize new_quality to prevent any scoping issues
+        new_quality = None
         
         if network_slow or avg_delivery > self.config.network_timeout_threshold:
             # Network is slow - reduce quality
@@ -524,7 +527,8 @@ class CameraManager:
                     self.config.min_stream_quality
                 )
                 
-                if self._update_encoder_quality(new_quality):
+                # Only call update if new_quality was calculated
+                if new_quality is not None and self._update_encoder_quality(new_quality):
                     print(f"📉 Quality reduced to {new_quality}% (network slow)")
         
         elif avg_delivery < 2.0:
@@ -539,7 +543,8 @@ class CameraManager:
                     self.max_quality
                 )
                 
-                if self._update_encoder_quality(new_quality):
+                # Only call update if new_quality was calculated
+                if new_quality is not None and self._update_encoder_quality(new_quality):
                     print(f"📈 Quality increased to {new_quality}% (network good)")
     
     def setup_streaming(self) -> bool:
