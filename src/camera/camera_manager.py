@@ -22,7 +22,7 @@ from .camera_exceptions import (
 from .hardware_detection import HardwareDetector, create_minimal_camera_config
 from .photo_capture import PhotoCapture
 from .streaming.video_streaming import StreamOutput, FrameGenerator, create_stream_output
-from .streaming.quality_adaptation import QualityAdapter
+from .streaming.enhanced_quality_adaptation import QualityAdapter
 from .streaming.network_performance import NetworkMonitor
 from .streaming.streaming_stats import StreamingStats
 
