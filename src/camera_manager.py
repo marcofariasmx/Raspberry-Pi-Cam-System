@@ -2,6 +2,10 @@
 Camera management for Raspberry Pi Camera Web App
 Handles Picamera2 operations with dual-stream configuration for simultaneous
 video streaming and high-resolution photo capture
+
+Optimized with ultra-simple latest frame broadcast system for multiple concurrent clients.
+LOW_RESOURCE_MODE now only affects camera-level settings, while streaming optimizations
+are universal.
 """
 
 import io
@@ -47,30 +51,52 @@ except ImportError as e:
 
 
 class StreamOutput(io.BufferedIOBase):
-    """Custom output class for MJPEG streaming with thread-safe frame management"""
+    """Ultra-simple latest frame broadcast system for multiple concurrent clients
+    
+    This approach provides optimal performance for all Pi models by using a single
+    frame storage that gets overwritten with the latest data. No synchronization
+    needed - clients read at their own pace. This universal optimization eliminates
+    the need for complex buffer management.
+    """
     
     def __init__(self):
-        self.frame = None
-        self.condition = threading.Condition()
-        self.frame_count = 0
+        # Ultra-simple: just store the latest frame (universal optimization)
+        self.latest_frame = None
+        self.frame_ready = False
+        self.frames_written = 0  # Keep for monitoring
     
     def write(self, buf):
-        """Write new frame data - called by picamera2 encoder"""
-        with self.condition:
-            self.frame = buf
-            self.frame_count += 1
-            self.condition.notify_all()
+        """Write new frame data - simply overwrite latest frame"""
+        # Just overwrite with the latest frame (zero synchronization needed)
+        self.latest_frame = buf
+        self.frame_ready = True
+        self.frames_written += 1
     
     def get_latest_frame(self):
-        """Get the most recent frame for streaming"""
-        with self.condition:
-            return self.frame
+        """Get the most recent frame immediately (no waiting)"""
+        return self.latest_frame if self.frame_ready else None
+    
+    def get_frame_count(self):
+        """Get total frames written (for monitoring)"""
+        return self.frames_written
+    
+    @property
+    def max_frames(self):
+        """Return 1 for compatibility with status reporting"""
+        return 1
 
 
 class CameraManager:
     """
     Manages Raspberry Pi camera operations using Picamera2
     Supports simultaneous video streaming and high-resolution photo capture
+    
+    Uses universal latest frame broadcast for unlimited concurrent clients.
+    LOW_RESOURCE_MODE now only affects camera-level optimizations:
+    - Camera buffer count (1 vs 2-3)
+    - JPEG quality capping (70% vs full)
+    - Format preferences (YUV420 vs RGB888)
+    - Lazy camera initialization
     """
     
     def __init__(self, config: AppConfig):
@@ -85,8 +111,10 @@ class CameraManager:
         self.stream_output: Optional[StreamOutput] = None
         self.jpeg_encoder: Optional[JpegEncoder] = None
         
-        # Initialize camera on creation
-        self._detect_camera_capabilities()
+        # Lazy initialization - only for low resource mode
+        if not config.low_resource_mode:
+            # For normal systems, detect capabilities early
+            self._detect_camera_capabilities()
     
     def _detect_camera_capabilities(self) -> bool:
         """Auto-detect camera module and adapt settings"""
@@ -112,11 +140,11 @@ class CameraManager:
             
             if total_pixels >= 12000000:  # 12MP+ (Module 3)
                 self.camera_module = "module3"
-                self.recommended_buffer_count = 2  # More conservative for high res
+                self.recommended_buffer_count = 2 if self.config.low_resource_mode else 2
                 print(f"📷 Camera Module 3 detected: {width}x{height}")
             elif total_pixels >= 8000000:  # 8MP+ (Module 2)
                 self.camera_module = "module2"
-                self.recommended_buffer_count = 3  # Can handle more buffers
+                self.recommended_buffer_count = 2 if self.config.low_resource_mode else 3
                 print(f"📷 Camera Module 2 detected: {width}x{height}")
             else:
                 self.camera_module = "other"
@@ -137,7 +165,7 @@ class CameraManager:
             return False
     
     def _get_optimal_config(self) -> dict:
-        """Get camera configuration optimized for detected module"""
+        """Get camera configuration optimized for detected module and resource mode"""
         # Main stream - full resolution for photo capture
         if self.config.camera_auto_detect and self.sensor_resolution:
             main_size = self.sensor_resolution
@@ -150,20 +178,33 @@ class CameraManager:
         # Lores stream - consistent across modules for video streaming
         lores_size = (self.config.stream_width, self.config.stream_height)
         
-        # Buffer count - adaptive based on module capabilities
-        if self.config.buffer_count_auto:
+        # Camera buffer count optimization (Picamera2 hardware level - different from StreamOutput)
+        # These buffers are for camera pipeline smoothness, not frame storage
+        # StreamOutput always uses 1 frame, but camera needs 1-3 pipeline buffers
+        if self.config.low_resource_mode:
+            buffer_count = 1  # Single buffer for Pi Zero 2W
+        elif self.config.buffer_count_auto:
             buffer_count = self.recommended_buffer_count
         else:
             buffer_count = self.config.buffer_count_fallback
         
+        # Format optimization for low resource mode (still valuable)
+        if self.config.low_resource_mode:
+            # Prefer YUV420 for better performance on Pi Zero 2W
+            main_format = "YUV420" if self.config.main_stream_format == "RGB888" else self.config.main_stream_format
+            lores_format = "YUV420"
+        else:
+            main_format = self.config.main_stream_format
+            lores_format = self.config.lores_stream_format
+        
         return {
             "main_stream": {
                 "size": main_size,
-                "format": self.config.main_stream_format
+                "format": main_format
             },
             "lores_stream": {
                 "size": lores_size,
-                "format": self.config.lores_stream_format
+                "format": lores_format
             },
             "buffer_count": buffer_count,
             "transform": Transform(
@@ -181,12 +222,17 @@ class CameraManager:
         try:
             print("🚀 Initializing camera...")
             
+            # Lazy detection for low resource mode (still valuable)
+            if self.config.low_resource_mode and not self.sensor_resolution:
+                self._detect_camera_capabilities()
+            
             # Get optimal configuration for this camera module
             config = self._get_optimal_config()
             
             print(f"📐 Main stream: {config['main_stream']['size']} ({config['main_stream']['format']})")
             print(f"📺 Lores stream: {config['lores_stream']['size']} ({config['lores_stream']['format']})")
             print(f"🧠 Buffer count: {config['buffer_count']}")
+            print(f"⚡ Low resource mode: {self.config.low_resource_mode} (camera-level optimizations)")
             
             # Create camera instance
             self.camera_device = Picamera2()
@@ -229,7 +275,7 @@ class CameraManager:
                 main={"size": (1920, 1080), "format": "RGB888"},
                 lores={"size": (640, 480)},
                 encode="lores",
-                buffer_count=2
+                buffer_count=1 if self.config.low_resource_mode else 2
             )
             
             self.camera_device.configure(minimal_config)
@@ -266,8 +312,10 @@ class CameraManager:
             # Use picamera2's proper capture method for simultaneous operation
             # This captures from the main (full resolution) stream while lores continues streaming
             request = self.camera_device.capture_request()
-            request.save("main", filepath)  # Save from main stream (full resolution)
-            request.release()  # Critical: release the request to free memory
+            try:
+                request.save("main", filepath)  # Save from main stream (full resolution)
+            finally:
+                request.release()  # Critical: release the request to free memory
             
             print(f"✅ Photo saved: {filename}")
             return True, "Photo captured successfully", filename
@@ -289,9 +337,17 @@ class CameraManager:
         try:
             print("🎥 Setting up video streaming...")
             
-            # Create streaming output
+            # Create streaming output with universal latest frame system
             self.stream_output = StreamOutput()
-            self.jpeg_encoder = JpegEncoder(q=self.config.stream_quality)
+            
+            # JPEG quality optimization (still valuable for Pi Zero 2W)
+            if self.config.low_resource_mode:
+                # Lower quality for better performance on Pi Zero 2W
+                quality = min(self.config.stream_quality, 70)
+            else:
+                quality = self.config.stream_quality
+            
+            self.jpeg_encoder = JpegEncoder(q=quality)
             
             # Start recording from lores stream for streaming
             self.camera_device.start_recording(
@@ -300,7 +356,7 @@ class CameraManager:
             )
             
             self.is_streaming = True
-            print("✅ Video streaming started")
+            print(f"✅ Video streaming started (quality: {quality}, universal broadcast mode)")
             return True
             
         except Exception as e:
@@ -324,21 +380,20 @@ class CameraManager:
             return False
     
     def generate_frames(self):
-        """Generate frames for MJPEG streaming"""
+        """Generate frames for MJPEG streaming with universal broadcast system"""
         while self.is_streaming and self.stream_output:
             try:
-                with self.stream_output.condition:
-                    # Wait for new frame with timeout
-                    if self.stream_output.condition.wait(timeout=1.0):
-                        frame = self.stream_output.frame
-                        
-                        if frame:
-                            yield (b'--frame\r\n'
-                                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-                    else:
-                        # Timeout - check if we should continue
-                        if not self.is_streaming:
-                            break
+                # Simply get the latest available frame (no synchronization needed)
+                frame = self.stream_output.get_latest_frame()
+                
+                if frame:
+                    # Zero-copy frame delivery
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                
+                # Small sleep to prevent CPU spinning and limit frame rate
+                # This allows clients to consume at their own pace
+                time.sleep(0.033)  # ~30 FPS maximum rate
                         
             except Exception as e:
                 print(f"❌ Streaming error: {e}")
@@ -348,14 +403,23 @@ class CameraManager:
     
     def get_status(self) -> dict:
         """Get camera status information"""
-        return {
+        status = {
             "available": self.camera_device is not None,
             "streaming": self.is_streaming,
             "module": self.camera_module,
             "resolution": self.sensor_resolution,
             "buffer_count": self.recommended_buffer_count,
-            "picamera2_available": PICAMERA2_AVAILABLE
+            "picamera2_available": PICAMERA2_AVAILABLE,
+            "low_resource_mode": self.config.low_resource_mode
         }
+        
+        # Add streaming statistics if available
+        if self.stream_output:
+            status["frames_written"] = self.stream_output.get_frame_count()
+            status["max_buffer_frames"] = self.stream_output.max_frames
+            status["streaming_mode"] = "universal_latest_frame_broadcast"
+        
+        return status
     
     def cleanup(self):
         """Clean up camera resources"""
