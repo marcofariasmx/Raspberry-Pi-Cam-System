@@ -21,7 +21,7 @@ from .camera_exceptions import (
 )
 from .hardware_detection import HardwareDetector, create_minimal_camera_config
 from .photo_capture import PhotoCapture
-from .streaming.video_streaming import StreamOutput, FrameGenerator
+from .streaming.video_streaming import StreamOutput, FrameGenerator, create_stream_output
 from .streaming.quality_adaptation import QualityAdapter
 from .streaming.network_performance import NetworkMonitor
 from .streaming.streaming_stats import StreamingStats
@@ -203,7 +203,7 @@ class CameraManager:
             print("🎥 Setting up adaptive video streaming...")
             
             # Create streaming components
-            self.stream_output = StreamOutput()
+            self.stream_output = create_stream_output(enable_queue=True, queue_size=10)
             self.frame_generator = FrameGenerator(
                 self.stream_output, 
                 self.quality_adapter.current_frame_rate
