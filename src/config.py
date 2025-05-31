@@ -27,6 +27,16 @@ class AppConfig:
     stream_height: int
     stream_quality: int
     
+    # Adaptive streaming
+    adaptive_streaming: bool
+    adaptive_quality: bool
+    min_frame_rate: int
+    max_frame_rate: int
+    min_stream_quality: int
+    quality_step_size: int
+    network_check_interval: float
+    network_timeout_threshold: float
+    
     # Memory management
     buffer_count_auto: bool
     buffer_count_fallback: int
@@ -65,6 +75,13 @@ class AppConfig:
             except ValueError:
                 return default
         
+        def get_float(key: str, default: float) -> float:
+            """Get float from environment variable"""
+            try:
+                return float(os.getenv(key, str(default)))
+            except ValueError:
+                return default
+        
         def get_str(key: str, default: str = None) -> str:
             """Get string from environment variable"""
             value = os.getenv(key, default)
@@ -86,6 +103,16 @@ class AppConfig:
             stream_width=get_int('STREAM_WIDTH', 640),
             stream_height=get_int('STREAM_HEIGHT', 480),
             stream_quality=get_int('STREAM_QUALITY', 85),
+            
+            # Adaptive streaming configuration
+            adaptive_streaming=get_bool('ADAPTIVE_STREAMING', True),
+            adaptive_quality=get_bool('ADAPTIVE_QUALITY', True),
+            min_frame_rate=get_int('MIN_FRAME_RATE', 2),
+            max_frame_rate=get_int('MAX_FRAME_RATE', 30),
+            min_stream_quality=get_int('MIN_STREAM_QUALITY', 30),
+            quality_step_size=get_int('QUALITY_STEP_SIZE', 15),
+            network_check_interval=get_float('NETWORK_CHECK_INTERVAL', 2.0),
+            network_timeout_threshold=get_float('NETWORK_TIMEOUT_THRESHOLD', 3.0),
             
             # Memory management
             buffer_count_auto=get_bool('BUFFER_COUNT_AUTO', True),
@@ -137,6 +164,16 @@ class AppConfig:
         if self.main_stream_format not in valid_formats:
             errors.append(f"Invalid main stream format. Must be one of: {valid_formats}")
         
+        # Validate adaptive streaming settings
+        if self.min_frame_rate < 1 or self.min_frame_rate > self.max_frame_rate:
+            errors.append(f"Invalid frame rate range: {self.min_frame_rate}-{self.max_frame_rate}")
+        
+        if self.min_stream_quality < 10 or self.min_stream_quality > 100:
+            errors.append(f"Invalid min stream quality: {self.min_stream_quality} (must be 10-100)")
+        
+        if self.quality_step_size < 5 or self.quality_step_size > 50:
+            errors.append(f"Invalid quality step size: {self.quality_step_size} (must be 5-50)")
+        
         return errors
     
     def print_summary(self):
@@ -145,6 +182,8 @@ class AppConfig:
         print(f"   🔒 Security: API key set, Password: {'*' * len(self.web_password)}")
         print(f"   📷 Camera: Auto-detect={self.camera_auto_detect}, Fallback={self.camera_fallback_width}x{self.camera_fallback_height}")
         print(f"   🎥 Stream: {self.stream_width}x{self.stream_height}, Quality={self.stream_quality}")
+        print(f"   🔄 Adaptive: Streaming={self.adaptive_streaming}, Quality={self.adaptive_quality}")
+        print(f"   📊 Frame Rate: {self.min_frame_rate}-{self.max_frame_rate} fps, Quality: {self.min_stream_quality}-{self.stream_quality}%")
         print(f"   🧠 Memory: Auto-buffer={self.buffer_count_auto}, Fallback={self.buffer_count_fallback}, Low-resource={self.low_resource_mode}")
         print(f"   🔄 Transform: HFlip={self.camera_hflip}, VFlip={self.camera_vflip}")
         print(f"   🌐 Server: {self.host}:{self.port}, Debug={self.debug}")

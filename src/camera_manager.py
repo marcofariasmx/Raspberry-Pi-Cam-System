@@ -3,9 +3,8 @@ Camera management for Raspberry Pi Camera Web App
 Handles Picamera2 operations with dual-stream configuration for simultaneous
 video streaming and high-resolution photo capture
 
-Optimized with ultra-simple latest frame broadcast system for multiple concurrent clients.
-LOW_RESOURCE_MODE now only affects camera-level settings, while streaming optimizations
-are universal.
+Enhanced with adaptive streaming system that automatically adjusts frame rate
+and quality based on network conditions to prevent buffering issues.
 """
 
 import io
@@ -51,30 +50,104 @@ except ImportError as e:
 
 
 class StreamOutput(io.BufferedIOBase):
-    """Ultra-simple latest frame broadcast system for multiple concurrent clients
+    """Adaptive latest frame broadcast system with network performance tracking
     
-    This approach provides optimal performance for all Pi models by using a single
-    frame storage that gets overwritten with the latest data. No synchronization
-    needed - clients read at their own pace. This universal optimization eliminates
-    the need for complex buffer management.
+    Enhanced to support adaptive streaming by monitoring frame delivery performance
+    and providing metrics for quality/frame rate adjustment decisions.
     """
     
     def __init__(self):
-        # Ultra-simple: just store the latest frame (universal optimization)
+        # Frame storage (universal optimization)
         self.latest_frame = None
         self.frame_ready = False
-        self.frames_written = 0  # Keep for monitoring
+        self.frames_written = 0
+        
+        # Network performance tracking for adaptive streaming
+        self.frames_delivered = 0
+        self.frames_dropped = 0
+        self.last_frame_time = time.time()
+        self.frame_intervals = []  # Track recent frame intervals
+        self.max_interval_samples = 10  # Keep last 10 intervals for average
+        
+        # Performance metrics
+        self.delivery_times = []  # Track frame delivery times
+        self.max_delivery_samples = 20
+        self.slow_deliveries = 0
+        self.last_performance_check = time.time()
     
     def write(self, buf):
-        """Write new frame data - simply overwrite latest frame"""
-        # Just overwrite with the latest frame (zero synchronization needed)
+        """Write new frame data with performance tracking"""
+        current_time = time.time()
+        
+        # Track frame intervals for adaptive frame rate
+        if self.last_frame_time > 0:
+            interval = current_time - self.last_frame_time
+            self.frame_intervals.append(interval)
+            
+            # Keep only recent samples
+            if len(self.frame_intervals) > self.max_interval_samples:
+                self.frame_intervals.pop(0)
+        
+        # Store frame and update metrics
         self.latest_frame = buf
         self.frame_ready = True
         self.frames_written += 1
+        self.last_frame_time = current_time
     
     def get_latest_frame(self):
-        """Get the most recent frame immediately (no waiting)"""
-        return self.latest_frame if self.frame_ready else None
+        """Get the most recent frame with delivery tracking"""
+        if self.frame_ready:
+            self.frames_delivered += 1
+            return self.latest_frame
+        return None
+    
+    def record_delivery_time(self, delivery_time: float):
+        """Record frame delivery time for performance monitoring"""
+        self.delivery_times.append(delivery_time)
+        
+        # Keep only recent samples
+        if len(self.delivery_times) > self.max_delivery_samples:
+            self.delivery_times.pop(0)
+        
+        # Track slow deliveries (>2 seconds indicates network issues)
+        if delivery_time > 2.0:
+            self.slow_deliveries += 1
+    
+    def get_average_frame_interval(self) -> float:
+        """Get average time between frames (for adaptive frame rate)"""
+        if not self.frame_intervals:
+            return 0.033  # Default ~30fps
+        return sum(self.frame_intervals) / len(self.frame_intervals)
+    
+    def get_average_delivery_time(self) -> float:
+        """Get average frame delivery time"""
+        if not self.delivery_times:
+            return 0.0
+        return sum(self.delivery_times) / len(self.delivery_times)
+    
+    def is_network_slow(self, threshold: float = 1.0) -> bool:
+        """Check if network performance indicates slow conditions"""
+        avg_delivery = self.get_average_delivery_time()
+        return avg_delivery > threshold or self.slow_deliveries > 3
+    
+    def get_performance_metrics(self) -> dict:
+        """Get comprehensive performance metrics"""
+        return {
+            "frames_written": self.frames_written,
+            "frames_delivered": self.frames_delivered,
+            "frames_dropped": self.frames_dropped,
+            "average_frame_interval": self.get_average_frame_interval(),
+            "average_delivery_time": self.get_average_delivery_time(),
+            "slow_deliveries": self.slow_deliveries,
+            "network_slow": self.is_network_slow()
+        }
+    
+    def reset_performance_counters(self):
+        """Reset performance counters for fresh measurement"""
+        self.frames_delivered = 0
+        self.frames_dropped = 0
+        self.slow_deliveries = 0
+        self.delivery_times.clear()
     
     def get_frame_count(self):
         """Get total frames written (for monitoring)"""
@@ -91,12 +164,8 @@ class CameraManager:
     Manages Raspberry Pi camera operations using Picamera2
     Supports simultaneous video streaming and high-resolution photo capture
     
-    Uses universal latest frame broadcast for unlimited concurrent clients.
-    LOW_RESOURCE_MODE now only affects camera-level optimizations:
-    - Camera buffer count (1 vs 2-3)
-    - JPEG quality capping (70% vs full)
-    - Format preferences (YUV420 vs RGB888)
-    - Lazy camera initialization
+    Enhanced with adaptive streaming that automatically adjusts frame rate and
+    quality based on network conditions to maintain real-time performance.
     """
     
     def __init__(self, config: AppConfig):
@@ -110,6 +179,21 @@ class CameraManager:
         self.is_streaming = False
         self.stream_output: Optional[StreamOutput] = None
         self.jpeg_encoder: Optional[JpegEncoder] = None
+        
+        # Adaptive streaming state
+        self.current_frame_rate = config.max_frame_rate
+        self.current_quality = config.stream_quality
+        self.max_quality = config.stream_quality  # Remember user's preferred quality
+        self.last_adaptation_time = time.time()
+        self.adaptation_lock = threading.Lock()
+        
+        # Network monitoring
+        self.network_check_thread: Optional[threading.Thread] = None
+        self.network_monitoring = False
+        
+        # Performance tracking
+        self.total_frames_sent = 0
+        self.total_frames_dropped = 0
         
         # Lazy initialization - only for low resource mode
         if not config.low_resource_mode:
@@ -324,8 +408,121 @@ class CameraManager:
             print(f"❌ Photo capture failed: {e}")
             return False, f"Capture failed: {str(e)}", ""
     
+    def _update_encoder_quality(self, new_quality: int) -> bool:
+        """Update JPEG encoder quality during streaming"""
+        if not self.is_streaming or not self.camera_device or not PICAMERA2_AVAILABLE:
+            return False
+        
+        try:
+            # Stop current recording
+            self.camera_device.stop_recording()
+            
+            # Create new encoder with updated quality
+            self.jpeg_encoder = JpegEncoder(q=new_quality)
+            
+            # Start recording again with new encoder
+            self.camera_device.start_recording(
+                self.jpeg_encoder,
+                FileOutput(self.stream_output)
+            )
+            
+            self.current_quality = new_quality
+            print(f"🔄 Quality adjusted to {new_quality}%")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to update encoder quality: {e}")
+            return False
+    
+    def _monitor_network_performance(self):
+        """Background thread to monitor network performance and adapt streaming"""
+        print("🔍 Network monitoring started")
+        
+        while self.network_monitoring and self.is_streaming:
+            try:
+                time.sleep(self.config.network_check_interval)
+                
+                if not self.stream_output:
+                    continue
+                
+                # Get performance metrics
+                metrics = self.stream_output.get_performance_metrics()
+                
+                with self.adaptation_lock:
+                    # Check if adaptation is needed
+                    current_time = time.time()
+                    time_since_last_adaptation = current_time - self.last_adaptation_time
+                    
+                    # Only adapt every few seconds to avoid oscillation
+                    if time_since_last_adaptation < self.config.network_check_interval:
+                        continue
+                    
+                    if self.config.adaptive_streaming:
+                        self._adapt_frame_rate(metrics)
+                    
+                    if self.config.adaptive_quality:
+                        self._adapt_quality(metrics)
+                    
+                    self.last_adaptation_time = current_time
+                
+            except Exception as e:
+                print(f"⚠️  Network monitoring error: {e}")
+                time.sleep(1)  # Brief pause on error
+        
+        print("🔚 Network monitoring stopped")
+    
+    def _adapt_frame_rate(self, metrics: dict):
+        """Adapt frame rate based on network performance"""
+        network_slow = metrics.get("network_slow", False)
+        avg_delivery = metrics.get("average_delivery_time", 0.0)
+        
+        if network_slow or avg_delivery > self.config.network_timeout_threshold:
+            # Network is slow - reduce frame rate
+            if self.current_frame_rate > self.config.min_frame_rate:
+                new_frame_rate = max(
+                    self.current_frame_rate - 5,
+                    self.config.min_frame_rate
+                )
+                self.current_frame_rate = new_frame_rate
+                print(f"📉 Frame rate reduced to {new_frame_rate} fps (network slow)")
+        
+        elif avg_delivery < 0.5 and self.current_frame_rate < self.config.max_frame_rate:
+            # Network is good - increase frame rate
+            new_frame_rate = min(
+                self.current_frame_rate + 2,
+                self.config.max_frame_rate
+            )
+            self.current_frame_rate = new_frame_rate
+            print(f"📈 Frame rate increased to {new_frame_rate} fps (network good)")
+    
+    def _adapt_quality(self, metrics: dict):
+        """Adapt JPEG quality based on network performance"""
+        network_slow = metrics.get("network_slow", False)
+        avg_delivery = metrics.get("average_delivery_time", 0.0)
+        
+        if network_slow or avg_delivery > self.config.network_timeout_threshold:
+            # Network is slow - reduce quality
+            if self.current_quality > self.config.min_stream_quality:
+                new_quality = max(
+                    self.current_quality - self.config.quality_step_size,
+                    self.config.min_stream_quality
+                )
+                
+                if self._update_encoder_quality(new_quality):
+                    print(f"📉 Quality reduced to {new_quality}% (network slow)")
+        
+        elif avg_delivery < 0.5 and self.current_quality < self.max_quality:
+            # Network is good - increase quality
+            new_quality = min(
+                self.current_quality + self.config.quality_step_size,
+                self.max_quality
+            )
+            
+            if self._update_encoder_quality(new_quality):
+                print(f"📈 Quality increased to {new_quality}% (network good)")
+    
     def setup_streaming(self) -> bool:
-        """Setup MJPEG streaming from lores stream"""
+        """Setup MJPEG streaming from lores stream with adaptive capabilities"""
         if not self.camera_device:
             if not self.init_camera():
                 return False
@@ -335,18 +532,20 @@ class CameraManager:
             return False
         
         try:
-            print("🎥 Setting up video streaming...")
+            print("🎥 Setting up adaptive video streaming...")
             
-            # Create streaming output with universal latest frame system
+            # Create streaming output with performance tracking
             self.stream_output = StreamOutput()
             
-            # JPEG quality optimization (still valuable for Pi Zero 2W)
+            # Initialize quality (respect user's setting as maximum)
             if self.config.low_resource_mode:
                 # Lower quality for better performance on Pi Zero 2W
                 quality = min(self.config.stream_quality, 70)
             else:
                 quality = self.config.stream_quality
             
+            self.current_quality = quality
+            self.max_quality = self.config.stream_quality
             self.jpeg_encoder = JpegEncoder(q=quality)
             
             # Start recording from lores stream for streaming
@@ -356,7 +555,22 @@ class CameraManager:
             )
             
             self.is_streaming = True
-            print(f"✅ Video streaming started (quality: {quality}, universal broadcast mode)")
+            
+            # Start network monitoring if adaptive streaming is enabled
+            if self.config.adaptive_streaming or self.config.adaptive_quality:
+                self.network_monitoring = True
+                self.network_check_thread = threading.Thread(
+                    target=self._monitor_network_performance,
+                    daemon=True
+                )
+                self.network_check_thread.start()
+            
+            print(f"✅ Adaptive video streaming started")
+            print(f"   🎯 Quality: {quality}% (max: {self.max_quality}%)")
+            print(f"   📊 Frame rate: {self.current_frame_rate} fps")
+            print(f"   🔄 Adaptive streaming: {self.config.adaptive_streaming}")
+            print(f"   🎨 Adaptive quality: {self.config.adaptive_quality}")
+            
             return True
             
         except Exception as e:
@@ -364,15 +578,27 @@ class CameraManager:
             return False
     
     def stop_streaming(self) -> bool:
-        """Stop video streaming"""
+        """Stop video streaming and network monitoring"""
         if not self.is_streaming or not self.camera_device:
             return True
         
         try:
-            print("🛑 Stopping video stream...")
+            print("🛑 Stopping adaptive video stream...")
+            
+            # Stop network monitoring
+            self.network_monitoring = False
+            if self.network_check_thread and self.network_check_thread.is_alive():
+                self.network_check_thread.join(timeout=2)
+            
+            # Stop camera recording
             self.camera_device.stop_recording()
             self.is_streaming = False
-            print("✅ Video streaming stopped")
+            
+            # Reset adaptive parameters
+            self.current_frame_rate = self.config.max_frame_rate
+            self.current_quality = self.config.stream_quality
+            
+            print("✅ Adaptive video streaming stopped")
             return True
             
         except Exception as e:
@@ -380,29 +606,45 @@ class CameraManager:
             return False
     
     def generate_frames(self):
-        """Generate frames for MJPEG streaming with universal broadcast system"""
+        """Generate frames for MJPEG streaming with adaptive frame rate"""
+        print(f"🎬 Starting adaptive frame generation (target: {self.current_frame_rate} fps)")
+        
         while self.is_streaming and self.stream_output:
             try:
-                # Simply get the latest available frame (no synchronization needed)
+                frame_start_time = time.time()
+                
+                # Get the latest available frame
                 frame = self.stream_output.get_latest_frame()
                 
                 if frame:
-                    # Zero-copy frame delivery
+                    # Calculate adaptive frame rate delay
+                    target_interval = 1.0 / max(self.current_frame_rate, 1)
+                    
+                    # Yield frame
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-                
-                # Small sleep to prevent CPU spinning and limit frame rate
-                # This allows clients to consume at their own pace
-                time.sleep(0.033)  # ~30 FPS maximum rate
+                    
+                    self.total_frames_sent += 1
+                    
+                    # Record delivery time for performance monitoring
+                    delivery_time = time.time() - frame_start_time
+                    self.stream_output.record_delivery_time(delivery_time)
+                    
+                    # Adaptive delay based on current frame rate setting
+                    time.sleep(target_interval)
+                else:
+                    # No frame available - brief pause
+                    self.total_frames_dropped += 1
+                    time.sleep(0.01)
                         
             except Exception as e:
-                print(f"❌ Streaming error: {e}")
+                print(f"❌ Adaptive streaming error: {e}")
                 break
         
-        print("🔚 Stream generator ended")
+        print("🔚 Adaptive frame generation ended")
     
     def get_status(self) -> dict:
-        """Get camera status information"""
+        """Get camera status information with adaptive streaming metrics"""
         status = {
             "available": self.camera_device is not None,
             "streaming": self.is_streaming,
@@ -410,16 +652,61 @@ class CameraManager:
             "resolution": self.sensor_resolution,
             "buffer_count": self.recommended_buffer_count,
             "picamera2_available": PICAMERA2_AVAILABLE,
-            "low_resource_mode": self.config.low_resource_mode
+            "low_resource_mode": self.config.low_resource_mode,
+            
+            # Adaptive streaming status
+            "adaptive_streaming": self.config.adaptive_streaming,
+            "adaptive_quality": self.config.adaptive_quality,
+            "current_frame_rate": self.current_frame_rate,
+            "current_quality": self.current_quality,
+            "max_quality": self.max_quality,
+            "target_frame_rate_range": f"{self.config.min_frame_rate}-{self.config.max_frame_rate}",
+            "quality_range": f"{self.config.min_stream_quality}-{self.max_quality}",
+            
+            # Performance metrics
+            "total_frames_sent": self.total_frames_sent,
+            "total_frames_dropped": self.total_frames_dropped
         }
         
         # Add streaming statistics if available
         if self.stream_output:
-            status["frames_written"] = self.stream_output.get_frame_count()
-            status["max_buffer_frames"] = self.stream_output.max_frames
-            status["streaming_mode"] = "universal_latest_frame_broadcast"
+            performance_metrics = self.stream_output.get_performance_metrics()
+            status.update({
+                "frames_written": performance_metrics["frames_written"],
+                "frames_delivered": performance_metrics["frames_delivered"],
+                "network_slow": performance_metrics["network_slow"],
+                "average_delivery_time": round(performance_metrics["average_delivery_time"], 3),
+                "streaming_mode": "adaptive_latest_frame_broadcast"
+            })
         
         return status
+    
+    def get_streaming_stats(self) -> dict:
+        """Get detailed streaming performance statistics"""
+        if not self.stream_output:
+            return {"error": "No active stream"}
+        
+        metrics = self.stream_output.get_performance_metrics()
+        
+        return {
+            "performance": metrics,
+            "adaptation": {
+                "current_frame_rate": self.current_frame_rate,
+                "current_quality": self.current_quality,
+                "max_quality": self.max_quality,
+                "frames_sent": self.total_frames_sent,
+                "frames_dropped": self.total_frames_dropped,
+                "drop_rate": self.total_frames_dropped / max(self.total_frames_sent + self.total_frames_dropped, 1)
+            },
+            "configuration": {
+                "adaptive_streaming": self.config.adaptive_streaming,
+                "adaptive_quality": self.config.adaptive_quality,
+                "frame_rate_range": [self.config.min_frame_rate, self.config.max_frame_rate],
+                "quality_range": [self.config.min_stream_quality, self.max_quality],
+                "network_check_interval": self.config.network_check_interval,
+                "network_timeout_threshold": self.config.network_timeout_threshold
+            }
+        }
     
     def cleanup(self):
         """Clean up camera resources"""

@@ -376,6 +376,21 @@ async def stop_stream(api_key: str = Depends(verify_api_key)):
         }
 
 
+@app.get("/api/camera/stream/stats")
+async def get_streaming_stats(api_key: str = Depends(verify_api_key)):
+    """Get detailed streaming performance statistics"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        stats = camera_manager.get_streaming_stats()
+        stats["timestamp"] = datetime.now().isoformat()
+        return stats
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get streaming stats: {str(e)}")
+
+
 @app.get("/api/photos")
 async def list_photos(api_key: str = Depends(verify_api_key)):
     """List all captured photos with metadata"""
@@ -541,6 +556,21 @@ async def get_streaming_token(session: Dict[str, Any] = Depends(verify_session))
     }
 
 
+@app.get("/api/session/camera/stream/stats")
+async def session_get_streaming_stats(session: Dict[str, Any] = Depends(verify_session)):
+    """Get detailed streaming performance statistics (session-based)"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        stats = camera_manager.get_streaming_stats()
+        stats["timestamp"] = datetime.now().isoformat()
+        return stats
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get streaming stats: {str(e)}")
+
+
 @app.get("/api/session/photos")
 async def session_list_photos(session: Dict[str, Any] = Depends(verify_session)):
     """List all captured photos with metadata (session-based)"""
@@ -593,6 +623,14 @@ async def get_app_config(api_key: str = Depends(verify_api_key)):
                 "hflip": config.camera_hflip,
                 "vflip": config.camera_vflip
             }
+        },
+        "adaptive": {
+            "streaming": config.adaptive_streaming,
+            "quality": config.adaptive_quality,
+            "frame_rate_range": f"{config.min_frame_rate}-{config.max_frame_rate}",
+            "quality_range": f"{config.min_stream_quality}-{config.stream_quality}",
+            "network_check_interval": config.network_check_interval,
+            "network_timeout_threshold": config.network_timeout_threshold
         },
         "server": {
             "host": config.host,
