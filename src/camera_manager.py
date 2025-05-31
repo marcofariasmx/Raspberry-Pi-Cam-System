@@ -109,8 +109,8 @@ class StreamOutput(io.BufferedIOBase):
         if len(self.delivery_times) > self.max_delivery_samples:
             self.delivery_times.pop(0)
         
-        # Track slow deliveries (>2 seconds indicates network issues)
-        if delivery_time > 2.0:
+        # Track slow deliveries (>4 seconds indicates network issues)
+        if delivery_time > 4.0:
             self.slow_deliveries += 1
     
     def get_average_frame_interval(self) -> float:
@@ -194,6 +194,10 @@ class CameraManager:
         # Performance tracking
         self.total_frames_sent = 0
         self.total_frames_dropped = 0
+        
+        # Recovery tracking for gradual adaptation
+        self.consecutive_good_periods = 0
+        self.min_consecutive_good_for_recovery = 3
         
         # Lazy initialization - only for low resource mode
         if not config.low_resource_mode:
@@ -477,7 +481,8 @@ class CameraManager:
         avg_delivery = metrics.get("average_delivery_time", 0.0)
         
         if network_slow or avg_delivery > self.config.network_timeout_threshold:
-            # Network is slow - reduce frame rate
+            # Network is slow - reduce frame rate and reset good period counter
+            self.consecutive_good_periods = 0
             if self.current_frame_rate > self.config.min_frame_rate:
                 new_frame_rate = max(
                     self.current_frame_rate - 5,
@@ -486,14 +491,25 @@ class CameraManager:
                 self.current_frame_rate = new_frame_rate
                 print(f"📉 Frame rate reduced to {new_frame_rate} fps (network slow)")
         
-        elif avg_delivery < 0.5 and self.current_frame_rate < self.config.max_frame_rate:
-            # Network is good - increase frame rate
-            new_frame_rate = min(
+        elif avg_delivery < 2.0:
+            # Network performance is good - track consecutive good periods
+            self.consecutive_good_periods += 1
+            
+            # Only attempt recovery after several consecutive good periods
+            if (self.consecutive_good_periods >= self.min_consecutive_good_for_recovery and 
+                self.current_frame_rate < self.config.max_frame_rate):
+                new_frame_rate = min(
                 self.current_frame_rate + 2,
                 self.config.max_frame_rate
             )
-            self.current_frame_rate = new_frame_rate
-            print(f"📈 Frame rate increased to {new_frame_rate} fps (network good)")
+                self.current_frame_rate = new_frame_rate
+                # Reset counter after successful recovery attempt
+                self.consecutive_good_periods = 0
+                print(f"📈 Frame rate increased to {new_frame_rate} fps (network consistently good)")
+        
+        else:
+            # Neutral performance - reset consecutive counter but don't change settings
+            self.consecutive_good_periods = 0
     
     def _adapt_quality(self, metrics: dict):
         """Adapt JPEG quality based on network performance"""

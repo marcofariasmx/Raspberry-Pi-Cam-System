@@ -112,7 +112,7 @@ class AppConfig:
             min_stream_quality=get_int('MIN_STREAM_QUALITY', 30),
             quality_step_size=get_int('QUALITY_STEP_SIZE', 15),
             network_check_interval=get_float('NETWORK_CHECK_INTERVAL', 2.0),
-            network_timeout_threshold=get_float('NETWORK_TIMEOUT_THRESHOLD', 3.0),
+            network_timeout_threshold=get_float('NETWORK_TIMEOUT_THRESHOLD', 5.0),
             
             # Memory management
             buffer_count_auto=get_bool('BUFFER_COUNT_AUTO', True),
