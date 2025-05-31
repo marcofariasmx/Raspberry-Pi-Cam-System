@@ -56,7 +56,14 @@ class QualityAdapter:
         
         # Recovery tracking for gradual adaptation
         self.consecutive_good_periods = 0
-        self.min_consecutive_good_for_recovery = 3
+        self.min_consecutive_good_for_recovery = 2
+        
+        # Delivery time history for forgiveness logic
+        self.delivery_time_history = []
+        self.max_history_length = 5
+        
+        # Spike detection threshold
+        self.spike_threshold = 4.0  # Single delivery >4s triggers immediate response
         
         # Encoder management
         self.current_encoder: Optional[JpegEncoder] = None
@@ -103,9 +110,41 @@ class QualityAdapter:
         print(f"🎨 JPEG encoder initialized with quality: {quality}%")
         return self.current_encoder
     
+    def _update_delivery_history(self, avg_delivery: float):
+        """Update delivery time history for forgiveness logic"""
+        self.delivery_time_history.append(avg_delivery)
+        if len(self.delivery_time_history) > self.max_history_length:
+            self.delivery_time_history.pop(0)
+    
+    def _should_degrade_quality(self, avg_delivery: float) -> tuple[bool, str]:
+        """Determine if quality should be degraded using forgiveness logic"""
+        # Spike detection - immediate response to single very high delivery time
+        if avg_delivery > self.spike_threshold:
+            return True, "spike_detected"
+        
+        # Level 1: Patient with vigilance (2.5s threshold, needs 2/3 bad readings)
+        if avg_delivery > self.config.network_timeout_threshold:
+            # Check if we have enough history for forgiveness logic
+            if len(self.delivery_time_history) >= 3:
+                recent_bad = sum(1 for t in self.delivery_time_history[-3:] 
+                               if t > self.config.network_timeout_threshold)
+                if recent_bad >= 2:  # 2 out of 3 bad readings
+                    return True, "patient_threshold_exceeded"
+            else:
+                # Not enough history, use immediate threshold
+                return True, "insufficient_history"
+        
+        # Level 2: Quick response to sustained problems (3 consecutive >2.0s)
+        if len(self.delivery_time_history) >= 3:
+            consecutive_slow = all(t > 2.0 for t in self.delivery_time_history[-3:])
+            if consecutive_slow:
+                return True, "sustained_degradation"
+        
+        return False, "good_performance"
+    
     def adapt_frame_rate(self, metrics: dict) -> bool:
         """
-        Adapt frame rate based on network performance
+        Adapt frame rate based on network performance using improved logic
         
         Args:
             metrics: Performance metrics from StreamOutput
@@ -116,26 +155,35 @@ class QualityAdapter:
         if not self.config.adaptive_streaming:
             return False
         
-        network_slow = metrics.get("network_slow", False)
         avg_delivery = metrics.get("average_delivery_time", 0.0)
+        self._update_delivery_history(avg_delivery)
         
         old_frame_rate = self.current_frame_rate
         
-        if network_slow or avg_delivery > self.config.network_timeout_threshold:
-            # Network is slow - reduce frame rate and reset good period counter
+        # Check if we should degrade performance
+        should_degrade, reason = self._should_degrade_quality(avg_delivery)
+        
+        if should_degrade:
+            # Reduce frame rate and reset good period counter
             self.consecutive_good_periods = 0
             if self.current_frame_rate > self.config.min_frame_rate:
+                # Adjust reduction based on severity
+                if reason == "spike_detected":
+                    reduction = 5  # Moderate reduction for spikes
+                else:
+                    reduction = 3  # Smaller reduction for sustained issues
+                
                 self.current_frame_rate = max(
-                    self.current_frame_rate - 5,
+                    self.current_frame_rate - reduction,
                     self.config.min_frame_rate
                 )
-                print(f"📉 Frame rate reduced to {self.current_frame_rate} fps (network slow)")
+                print(f"📉 Frame rate reduced to {self.current_frame_rate} fps ({reason})")
         
-        elif avg_delivery < 2.0:
+        elif avg_delivery < 1.5:  # Better recovery threshold
             # Network performance is good - track consecutive good periods
             self.consecutive_good_periods += 1
             
-            # Only attempt recovery after several consecutive good periods
+            # Faster recovery with new threshold
             if (self.consecutive_good_periods >= self.min_consecutive_good_for_recovery and 
                 self.current_frame_rate < self.config.max_frame_rate):
                 self.current_frame_rate = min(
@@ -144,17 +192,17 @@ class QualityAdapter:
                 )
                 # Reset counter after successful recovery attempt
                 self.consecutive_good_periods = 0
-                print(f"📈 Frame rate increased to {self.current_frame_rate} fps (network consistently good)")
+                print(f"📈 Frame rate increased to {self.current_frame_rate} fps (network good)")
         
         else:
-            # Neutral performance - reset consecutive counter but don't change settings
-            self.consecutive_good_periods = 0
+            # Neutral performance - don't reset counter but don't change settings
+            pass
         
         return self.current_frame_rate != old_frame_rate
     
     def adapt_quality(self, metrics: dict) -> bool:
         """
-        Adapt JPEG quality based on network performance
+        Adapt JPEG quality based on network performance using improved logic
         
         Args:
             metrics: Performance metrics from StreamOutput
@@ -165,29 +213,38 @@ class QualityAdapter:
         if not self.config.adaptive_quality:
             return False
         
-        network_slow = metrics.get("network_slow", False)
         avg_delivery = metrics.get("average_delivery_time", 0.0)
-        
         old_quality = self.current_quality
         new_quality = None
         
-        if network_slow or avg_delivery > self.config.network_timeout_threshold:
-            # Network is slow - reduce quality
+        # Check if we should degrade performance
+        should_degrade, reason = self._should_degrade_quality(avg_delivery)
+        
+        if should_degrade:
+            # Reduce quality
             if self.current_quality > self.config.min_stream_quality:
+                # Adjust reduction based on severity
+                if reason == "spike_detected":
+                    reduction = self.config.quality_step_size + 5  # Larger reduction for spikes
+                else:
+                    reduction = self.config.quality_step_size  # Normal reduction
+                    
                 new_quality = max(
-                    self.current_quality - self.config.quality_step_size,
+                    self.current_quality - reduction,
                     self.config.min_stream_quality
                 )
         
-        elif avg_delivery < 2.0:
+        elif avg_delivery < 1.5:  # Better recovery threshold
             # Network performance is good - track consecutive good periods
             self.consecutive_good_periods += 1
             
-            # Only attempt recovery after several consecutive good periods
+            # Faster recovery with new threshold
             if (self.consecutive_good_periods >= self.min_consecutive_good_for_recovery and 
                 self.current_quality < self.max_quality):
+                # Smaller recovery steps for smoother transitions
+                recovery_step = max(5, self.config.quality_step_size // 2)
                 new_quality = min(
-                    self.current_quality + self.config.quality_step_size,
+                    self.current_quality + recovery_step,
                     self.max_quality
                 )
         
@@ -197,7 +254,7 @@ class QualityAdapter:
                 if new_quality > old_quality:
                     print(f"📈 Quality increased to {new_quality}% (network good)")
                 else:
-                    print(f"📉 Quality reduced to {new_quality}% (network slow)")
+                    print(f"📉 Quality reduced to {new_quality}% ({reason if 'reason' in locals() else 'network slow'})")
                 return True
         
         return False
@@ -278,6 +335,7 @@ class QualityAdapter:
                 self._update_encoder_quality(self.max_quality)
             
             self.consecutive_good_periods = 0
+            self.delivery_time_history.clear()  # Clear history on reset
             print(f"🔄 Reset to maximum: {self.current_frame_rate} fps, {self.current_quality}% quality")
     
     def get_adaptation_status(self) -> dict:
@@ -297,7 +355,9 @@ class QualityAdapter:
             "quality_range": [self.config.min_stream_quality, self.max_quality],
             "consecutive_good_periods": self.consecutive_good_periods,
             "quality_step_size": self.config.quality_step_size,
-            "low_resource_mode": self.config.low_resource_mode
+            "low_resource_mode": self.config.low_resource_mode,
+            "delivery_history_length": len(self.delivery_time_history),
+            "spike_threshold": self.spike_threshold
         }
     
     def force_quality_change(self, new_quality: int) -> bool:
@@ -348,12 +408,12 @@ class QualityAdapter:
         Returns:
             dict: Recommended settings
         """
-        network_slow = metrics.get("network_slow", False)
         avg_delivery = metrics.get("average_delivery_time", 0.0)
+        should_degrade, reason = self._should_degrade_quality(avg_delivery)
         
-        if network_slow or avg_delivery > self.config.network_timeout_threshold:
+        if should_degrade:
             # Recommend conservative settings
-            recommended_fps = max(self.config.min_frame_rate, self.current_frame_rate - 5)
+            recommended_fps = max(self.config.min_frame_rate, self.current_frame_rate - 3)
             recommended_quality = max(self.config.min_stream_quality, 
                                    self.current_quality - self.config.quality_step_size)
             performance_level = "poor"
@@ -362,11 +422,11 @@ class QualityAdapter:
             recommended_fps = self.config.max_frame_rate
             recommended_quality = self.max_quality
             performance_level = "excellent"
-        elif avg_delivery < 2.0:
+        elif avg_delivery < 1.5:
             # Recommend good settings
             recommended_fps = min(self.config.max_frame_rate, self.current_frame_rate + 2)
             recommended_quality = min(self.max_quality, 
-                                   self.current_quality + self.config.quality_step_size)
+                                   self.current_quality + 5)
             performance_level = "good"
         else:
             # Recommend current settings
@@ -378,6 +438,7 @@ class QualityAdapter:
             "recommended_frame_rate": recommended_fps,
             "recommended_quality": recommended_quality,
             "performance_level": performance_level,
-            "network_condition": "slow" if network_slow else "normal",
-            "average_delivery_time": avg_delivery
+            "network_condition": "degraded" if should_degrade else "normal",
+            "average_delivery_time": avg_delivery,
+            "degradation_reason": reason if should_degrade else None
         }

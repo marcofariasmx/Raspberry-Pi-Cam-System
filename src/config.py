@@ -82,7 +82,7 @@ class AppConfig:
             except ValueError:
                 return default
         
-        def get_str(key: str, default: str = None) -> str:
+        def get_str(key: str, default: Optional[str] = None) -> str:
             """Get string from environment variable"""
             value = os.getenv(key, default)
             if value is None:
@@ -110,9 +110,9 @@ class AppConfig:
             min_frame_rate=get_int('MIN_FRAME_RATE', 2),
             max_frame_rate=get_int('MAX_FRAME_RATE', 30),
             min_stream_quality=get_int('MIN_STREAM_QUALITY', 30),
-            quality_step_size=get_int('QUALITY_STEP_SIZE', 15),
-            network_check_interval=get_float('NETWORK_CHECK_INTERVAL', 2.0),
-            network_timeout_threshold=get_float('NETWORK_TIMEOUT_THRESHOLD', 5.0),
+            quality_step_size=get_int('QUALITY_STEP_SIZE', 10),
+            network_check_interval=get_float('NETWORK_CHECK_INTERVAL', 1.5),
+            network_timeout_threshold=get_float('NETWORK_TIMEOUT_THRESHOLD', 2.5),
             
             # Memory management
             buffer_count_auto=get_bool('BUFFER_COUNT_AUTO', True),
