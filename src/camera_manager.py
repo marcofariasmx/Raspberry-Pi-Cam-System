@@ -538,9 +538,9 @@ class CameraManager:
                     self.current_quality + self.config.quality_step_size,
                     self.max_quality
                 )
-            
-            if self._update_encoder_quality(new_quality):
-                print(f"📈 Quality increased to {new_quality}% (network good)")
+                
+                if self._update_encoder_quality(new_quality):
+                    print(f"📈 Quality increased to {new_quality}% (network good)")
     
     def setup_streaming(self) -> bool:
         """Setup MJPEG streaming from lores stream with adaptive capabilities"""
