@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from src.config import get_config, AppConfig
-from src.camera_manager import CameraManager
+from src.camera import CameraManager
 
 # Initialize configuration
 config = get_config()
@@ -651,5 +651,5 @@ if __name__ == "__main__":
         app,
         host=config.host,
         port=config.port,
-        debug=config.debug
+        reload=config.debug
     )
