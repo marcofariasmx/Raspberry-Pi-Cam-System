@@ -97,7 +97,8 @@ class StreamingStats:
                 "average_delivery_time": metrics.get("average_delivery_time", 0.0),
                 "frames_delivered": metrics.get("frames_delivered", 0),
                 "frames_dropped": metrics.get("frames_dropped", 0),
-                "intended_delivery_efficiency": adaptation_result.get("intended_delivery_efficiency", 1.0)
+                "intended_delivery_efficiency": adaptation_result.get("intended_delivery_efficiency", 1.0),
+                "current_delivery_ratio": adaptation_result.get("current_delivery_ratio", 1.0)
             }
         }
         
