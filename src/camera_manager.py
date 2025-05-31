@@ -527,12 +527,17 @@ class CameraManager:
                 if self._update_encoder_quality(new_quality):
                     print(f"📉 Quality reduced to {new_quality}% (network slow)")
         
-        elif avg_delivery < 0.5 and self.current_quality < self.max_quality:
-            # Network is good - increase quality
-            new_quality = min(
-                self.current_quality + self.config.quality_step_size,
-                self.max_quality
-            )
+        elif avg_delivery < 2.0:
+            # Network performance is good - track consecutive good periods
+            self.consecutive_good_periods += 1
+            
+            # Only attempt recovery after several consecutive good periods
+            if (self.consecutive_good_periods >= self.min_consecutive_good_for_recovery and 
+                self.current_quality < self.max_quality):
+                new_quality = min(
+                    self.current_quality + self.config.quality_step_size,
+                    self.max_quality
+                )
             
             if self._update_encoder_quality(new_quality):
                 print(f"📈 Quality increased to {new_quality}% (network good)")
