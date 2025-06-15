@@ -11,6 +11,7 @@ backward compatibility with legacy single-client streaming.
 import io
 import time
 from typing import Optional, Generator, TYPE_CHECKING
+from collections import deque  # add for bounded buffers
 
 # Import new queue-based components
 try:
@@ -51,34 +52,37 @@ class StreamOutput(io.BufferedIOBase):
     - Adaptive streaming metrics collection
     """
     
-    def __init__(self, use_queue: bool = True, queue_size: int = 10):
+    def __init__(self, *args, **kwargs):
         # Frame storage (universal optimization for legacy compatibility)
         self.latest_frame = None
         self.frame_ready = False
         self.frames_written = 0
-        
         # Queue-based streaming (new architecture)
-        self.use_queue = use_queue and QUEUE_COMPONENTS_AVAILABLE
-        if self.use_queue and SharedFrameQueue is not None and ClientStreamManager is not None:
+        self.use_queue = False
+        if QUEUE_COMPONENTS_AVAILABLE and SharedFrameQueue is not None and ClientStreamManager is not None:
+            queue_size = kwargs.get('queue_size', 10)
             self.shared_queue = SharedFrameQueue(max_size=queue_size)
             self.client_manager = ClientStreamManager(self.shared_queue)
+            self.use_queue = True
             print(f"🔄 StreamOutput using queue-based architecture (size: {queue_size})")
         else:
             self.shared_queue = None
             self.client_manager = None
-            self.use_queue = False  # Ensure queue mode is disabled if components unavailable
             print("📺 StreamOutput using legacy latest-frame architecture")
-        
         # Network performance tracking for adaptive streaming
         self.frames_delivered = 0
         self.frames_dropped = 0
         self.last_frame_time = time.time()
-        self.frame_intervals = []  # Track recent frame intervals
-        self.max_interval_samples = 10  # Keep last 10 intervals for average
+
+        # rolling-window of frame intervals
+        self.max_interval_samples = getattr(self, 'max_interval_samples', 10)
+        self.frame_intervals = deque(maxlen=self.max_interval_samples)
+
+        # rolling-window of delivery times
+        self.max_delivery_samples = getattr(self, 'max_delivery_samples', 20)
+        self.delivery_times = deque(maxlen=self.max_delivery_samples)
         
         # Performance metrics
-        self.delivery_times = []  # Track frame delivery times
-        self.max_delivery_samples = 20
         self.slow_deliveries = 0
         self.last_performance_check = time.time()
     
@@ -95,22 +99,17 @@ class StreamOutput(io.BufferedIOBase):
         if not buf:
             return 0
             
-        current_time = time.time()
-        
-        # Track frame intervals for adaptive frame rate
+        now = time.time()
+        # always record frame interval
         if self.last_frame_time > 0:
-            interval = current_time - self.last_frame_time
-            self.frame_intervals.append(interval)
-            
-            # Keep only recent samples
-            if len(self.frame_intervals) > self.max_interval_samples:
-                self.frame_intervals.pop(0)
-        
+            self.frame_intervals.append(now - self.last_frame_time)
+
         # Store frame for legacy mode (always maintain for backward compatibility)
-        self.latest_frame = buf
+        # store frame via zero-copy view
+        self.latest_frame = memoryview(buf)
         self.frame_ready = True
         self.frames_written += 1
-        self.last_frame_time = current_time
+        self.last_frame_time = now
         
         # Also put frame in queue if queue mode is active
         if self.use_queue and self.shared_queue:
@@ -144,12 +143,7 @@ class StreamOutput(io.BufferedIOBase):
             delivery_time: Time taken to deliver frame (seconds)
         """
         self.delivery_times.append(delivery_time)
-        
-        # Keep only recent samples
-        if len(self.delivery_times) > self.max_delivery_samples:
-            self.delivery_times.pop(0)
-        
-        # Track slow deliveries (>4 seconds indicates network issues)
+        # Track slow deliveries (>4 sec indicates network issues)
         if delivery_time > 4.0:
             self.slow_deliveries += 1
     
@@ -451,9 +445,10 @@ class FrameGenerator:
                     # Calculate adaptive frame rate delay
                     target_interval = 1.0 / max(self.target_frame_rate, 1)
                     
-                    # Yield frame with MJPEG headers
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                    # send header and payload separately to avoid per-frame concat allocations
+                    yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
+                    yield frame
+                    yield b'\r\n'
                     
                     self.frames_sent += 1
                     
