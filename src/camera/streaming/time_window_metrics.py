@@ -250,7 +250,7 @@ class TimeWindowMetrics:
         
         # Create standard windows for adaptive streaming
         self.create_window("delivery_ratio_fast", 10.0, 0.95)  # Fast degradation detection
-        self.create_window("delivery_ratio_stable", 30.0, 0.9)  # Stable recovery assessment
+        self.create_window("delivery_ratio_stable", 15.0, 0.9)  # Stable recovery assessment (shortened to 15s)
         self.create_window("delivery_time", 15.0, 0.92)
         self.create_window("frame_rate", 20.0, 0.88)
         self.create_window("quality_level", 25.0, 0.85)
@@ -331,15 +331,21 @@ class TimeWindowMetrics:
             reason = "rapid_degradation"
         
         # Recovery triggers (use stable window for conservative recovery)
-        elif stable_avg > 0.85:  # Excellent performance
-            if stable_trend in ["stable", "improving"]:
-                should_recover = True
-                confidence = 0.80
-                reason = "excellent_stable_performance"
-        elif stable_avg > 0.75 and stable_trend == "improving":  # Good improving
+        # Tier 1: mid-level recovery when stable_avg ≥ 0.60
+        elif stable_avg >= 0.60 and stable_trend in ["stable", "improving"]:
+            should_recover = True
+            confidence = 0.65
+            reason = "good_enough_performance"
+        # Tier 2: good & improving
+        elif stable_avg > 0.75 and stable_trend == "improving":
             should_recover = True
             confidence = 0.70
             reason = "good_improving_performance"
+        # Tier 3: excellent stable performance
+        elif stable_avg > 0.85 and stable_trend in ["stable", "improving"]:
+            should_recover = True
+            confidence = 0.80
+            reason = "excellent_stable_performance"
         
         return {
             "available": True,

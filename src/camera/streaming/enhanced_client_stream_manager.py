@@ -98,14 +98,12 @@ class ClientAdaptiveMetrics:
         if bytes_sent > 0:
             self.bytes_delivered += bytes_sent
             self.frames_delivered += 1
-            
-            # Calculate delivery ratio for time window
-            delivery_ratio = self.delivery_efficiency
-            
-            # Add samples to time windows
+
+            # Calculate delivery ratio for time window per frame
+            delivery_ratio = 1.0
             self.window_metrics.add_sample("delivery_ratio_fast", delivery_ratio)
             self.window_metrics.add_sample("delivery_ratio_stable", delivery_ratio)
-            
+
             if delivery_time > 0:
                 self.window_metrics.add_sample("delivery_time", delivery_time)
     
@@ -113,8 +111,8 @@ class ClientAdaptiveMetrics:
         """Record a skipped frame with performance impact"""
         self.frames_skipped += 1
         
-        # Record poor delivery ratio when skipping
-        delivery_ratio = self.delivery_efficiency
+        # Record poor delivery ratio when skipping per frame
+        delivery_ratio = 0.0
         self.window_metrics.add_sample("delivery_ratio_fast", delivery_ratio)
         self.window_metrics.add_sample("delivery_ratio_stable", delivery_ratio)
     
@@ -161,6 +159,8 @@ class ClientAdaptiveMetrics:
             if new_quality != self.current_quality:
                 self.current_quality = new_quality
                 self.last_adaptation_time = current_time
+                # Clear old metrics to avoid stale data delaying next adaptation
+                self.window_metrics.clear_all_windows()
                 print(f"📉 Client {self.client_id}: Quality reduced to {self.current_quality}% ({assessment['reason']})")
                 return True
         
@@ -185,6 +185,8 @@ class ClientAdaptiveMetrics:
                     self.current_quality = new_quality
                     self.consecutive_good_windows = 0  # Reset for next increment
                     self.last_adaptation_time = current_time
+                    # Clear old metrics to start fresh after recovery
+                    self.window_metrics.clear_all_windows()
                     print(f"📈 Client {self.client_id}: Quality increased to {self.current_quality}% (confidence: {assessment['confidence']:.1%})")
                     return True
         
@@ -228,6 +230,8 @@ class ClientAdaptiveMetrics:
             if new_fps != self.current_fps:
                 self.current_fps = new_fps
                 self.last_adaptation_time = current_time
+                # Clear old metrics after degradation
+                self.window_metrics.clear_all_windows()
                 print(f"📉 Client {self.client_id}: FPS reduced to {self.current_fps} ({assessment['reason']})")
                 return True
         
@@ -246,6 +250,8 @@ class ClientAdaptiveMetrics:
                 if new_fps != self.current_fps:
                     self.current_fps = new_fps
                     self.last_adaptation_time = current_time
+                    # Clear old metrics after recovery
+                    self.window_metrics.clear_all_windows()
                     print(f"📈 Client {self.client_id}: FPS increased to {self.current_fps} (confidence: {assessment['confidence']:.1%})")
                     return True
         
