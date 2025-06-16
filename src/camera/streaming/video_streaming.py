@@ -417,14 +417,15 @@ class FrameGenerator:
         Yields:
             bytes: MJPEG frame data with appropriate headers
         """
-        print(f"🎬 Starting frame generation (target: {self.target_frame_rate} fps)")
+        # Identify which session is generating frames
+        print(f"🎬 Starting frame generation for '{client_id or 'global'}' (target: {self.target_frame_rate} fps)")
         self.is_active = True
         
         # Use queue-based streaming if available and client_id provided
         if self.queue_mode and client_id:
             client_stream = self.stream_output.create_client_stream(client_id, self.target_frame_rate)
             if client_stream:
-                print(f"👤 Using queue-based client stream: {client_id}")
+                print(f"👤 Using queue-based client stream for '{client_id}'")
                 try:
                     for frame in client_stream:
                         if not self.is_active:
@@ -438,8 +439,8 @@ class FrameGenerator:
                     self.is_active = False
                 return
         
-        # Fall back to legacy mode
-        print("📺 Using legacy frame generation mode")
+        # Fall back to legacy mode for this client
+        print(f"📺 Using legacy frame generation mode for '{client_id or 'global'}'")
         while self.is_active and self.stream_output:
             try:
                 frame_start_time = time.time()
@@ -474,7 +475,7 @@ class FrameGenerator:
                 break
         
         self.is_active = False
-        print("🔚 Legacy frame generation ended")
+        print(f"🔚 Legacy frame generation ended for '{client_id or 'global'}'")
     
     def stop(self):
         """Stop frame generation"""
