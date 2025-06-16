@@ -279,21 +279,23 @@ class CameraManager:
             print(f"❌ Error stopping stream: {e}")
             return False
     
-    def generate_frames(self):
+    def generate_frames(self, client_id: Optional[str] = None):
         """
-        Generate frames for MJPEG streaming with adaptive frame rate
-        
+        Generate frames for MJPEG streaming, per-client if queue mode is active
+
+        Args:
+            client_id: Optional client identifier for queue-based streaming
         Yields:
             bytes: MJPEG frame data
         """
+        # Ensure streaming is active
         if not self.frame_generator or not self.is_streaming:
             return
-        
-        # Use the frame generator from the video streaming module
-        for frame in self.frame_generator.generate_frames():
+
+        # Delegate to FrameGenerator, passing client_id for per-client mode
+        for frame in self.frame_generator.generate_frames(client_id):
             yield frame
-            
-            # Update statistics
+            # Update global statistics
             self.total_frames_sent += 1
             self.streaming_stats.record_frame_sent()
     

@@ -5,6 +5,7 @@ FastAPI-based web app for camera streaming and photo capture with comprehensive 
 
 import os
 import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -510,10 +511,12 @@ async def video_stream(token: str = Depends(verify_token_param)):
         if not camera_manager.is_streaming:
             if not camera_manager.setup_streaming():
                 raise HTTPException(status_code=500, detail="Failed to setup video streaming")
-        
+        # Generate unique client ID for this stream session
+        client_id = f"client_{uuid.uuid4().hex[:8]}"
+         
         # Return streaming response
         return StreamingResponse(
-            camera_manager.generate_frames(),
+            camera_manager.generate_frames(client_id),
             media_type="multipart/x-mixed-replace; boundary=frame"
         )
         

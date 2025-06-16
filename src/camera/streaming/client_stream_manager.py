@@ -140,7 +140,7 @@ class ClientStreamManager:
         if client_id is None:
             client_id = f"client_{uuid.uuid4().hex[:8]}"
         
-        # Register client
+        # Register client and its queue
         current_time = time.time()
         with self._lock:
             self.clients[client_id] = ClientMetrics(
@@ -150,6 +150,9 @@ class ClientStreamManager:
             )
             self.active_streams.add(client_id)
             self.total_clients_created += 1
+            # Initialize queue entry
+            if self.shared_queue:
+                self.shared_queue.add_client(client_id)
         
         print(f"👤 Client stream created: {client_id} (target: {target_fps} fps)")
         
@@ -168,7 +171,7 @@ class ClientStreamManager:
                         continue
                     
                     # Get frame from shared queue
-                    queued_frame = self.shared_queue.get_frame(max_age=self.max_frame_age)
+                    queued_frame = self.shared_queue.get_frame(client_id, max_age=self.max_frame_age)
                     
                     if queued_frame:
                         # Create MJPEG frame with headers
@@ -206,9 +209,17 @@ class ClientStreamManager:
                     break
         
         finally:
-            # Clean up client when stream ends
-            self._cleanup_client(client_id)
-            print(f"🔚 Client stream ended: {client_id}")
+            # Deregister client when stream ends
+            with self._lock:
+                self.active_streams.discard(client_id)
+                self.clients.pop(client_id, None)
+                if self.shared_queue:
+                    self.shared_queue.remove_client(client_id)
+            # Log closure at same level as with
+            print(f"👋 Client stream closed: {client_id}")
+        
+        # Explicit stop yields
+        return
     
     def disconnect_client(self, client_id: str) -> bool:
         """

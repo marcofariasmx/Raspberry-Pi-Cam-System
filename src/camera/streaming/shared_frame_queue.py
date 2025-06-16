@@ -64,15 +64,19 @@ class SharedFrameQueue:
     Multiple clients can consume frames independently without affecting each other.
     """
     
-    def __init__(self, max_size: int = 10):
+    def __init__(self, max_size: int = 10, session_ttl: float = 300.0):
         """
-        Initialize shared frame queue
-        
+        Initialize shared frame queue with per-client queues
         Args:
-            max_size: Maximum number of frames in queue (auto-overflow when exceeded)
+            max_size: Maximum number of frames per client queue
+            session_ttl: Time in seconds to expire inactive clients
         """
         self.max_size = max_size
-        self._queue = deque(maxlen=max_size)
+        # Per-client frame deques
+        self.client_queues: Dict[str, deque] = {}
+        # Last access timestamps for TTL
+        self.client_last_seen: Dict[str, float] = {}
+        self.session_ttl = session_ttl
         self._lock = threading.RLock()
         
         # Performance tracking
@@ -107,98 +111,88 @@ class SharedFrameQueue:
         current_time = time.time()
         
         with self._lock:
-            # Check if we're about to overflow (before adding)
-            was_at_capacity = len(self._queue) >= self.max_size
+            # Clean up expired client queues
+            expired = [cid for cid, ts in self.client_last_seen.items() if current_time - ts > self.session_ttl]
+            for cid in expired:
+                self.client_queues.pop(cid, None)
+                self.client_last_seen.pop(cid, None)
             
-            # Create frame metadata
-            self._frame_id_counter += 1
-            metadata = FrameMetadata(
-                frame_id=f"frame_{self._frame_id_counter}",
-                timestamp=current_time,
-                quality_level=quality_level,
-                size=len(frame_data),
-                producer_info=producer_info
-            )
-            
-            # Add frame (deque automatically removes oldest if at maxlen)
-            queued_frame = QueuedFrame(frame_data, metadata)
-            self._queue.append(queued_frame)
-            
-            # Update statistics
-            self.total_frames_added += 1
-            self.last_frame_time = current_time
-            self.peak_size = max(self.peak_size, len(self._queue))
-            
-            # Track overflow
-            if was_at_capacity:
-                self.overflow_count += 1
-                self.last_overflow_time = current_time
-            
+            # Append frame to each active client queue
+            for client_id, queue in self.client_queues.items():
+                # Create metadata per frame
+                self._frame_id_counter += 1
+                metadata = FrameMetadata(
+                    frame_id=f"frame_{self._frame_id_counter}",
+                    timestamp=current_time,
+                    quality_level=quality_level,
+                    size=len(frame_data),
+                    producer_info=producer_info
+                )
+                queued_frame = QueuedFrame(frame_data, metadata)
+                if len(queue) >= self.max_size:
+                    queue.popleft()
+                queue.append(queued_frame)
+                # Update last seen timestamp
+                self.client_last_seen[client_id] = current_time
             return True
     
-    def get_frame(self, max_age: float = 5.0) -> Optional[QueuedFrame]:
+    def get_frame(self, client_id: str, max_age: float = 5.0) -> Optional[QueuedFrame]:
         """
         Get latest frame from queue (non-blocking)
         
         Args:
+            client_id: ID of the client requesting the frame
             max_age: Maximum acceptable frame age in seconds
             
         Returns:
             QueuedFrame: Latest frame or None if no suitable frame available
         """
         with self._lock:
-            if not self._queue:
+            queue = self.client_queues.get(client_id)
+            if not queue:
                 return None
-            
-            # Get the latest frame (most recent)
-            latest_frame = self._queue[-1]
-            
-            # Check if frame is too old
-            if latest_frame.metadata.age() > max_age:
-                return None
-            
-            # Update consumption statistics
-            self.total_frames_consumed += 1
-            
-            return latest_frame
+            while queue:
+                frame = queue.popleft()
+                if frame.metadata.age() <= max_age:
+                    return frame
+            return None
     
-    def get_oldest_frame(self, max_age: float = 5.0) -> Optional[QueuedFrame]:
+    def get_oldest_frame(self, client_id: str, max_age: float = 5.0) -> Optional[QueuedFrame]:
         """
         Get oldest frame from queue and remove it (FIFO)
         
         Args:
+            client_id: ID of the client requesting the frame
             max_age: Maximum acceptable frame age in seconds
             
         Returns:
             QueuedFrame: Oldest frame or None if no suitable frame available
         """
         with self._lock:
-            if not self._queue:
+            queue = self.client_queues.get(client_id)
+            if not queue:
                 return None
-            
-            # Get the oldest frame
-            oldest_frame = self._queue.popleft()
-            
-            # Check if frame is too old
-            if oldest_frame.metadata.age() > max_age:
-                return None
-            
-            # Update consumption statistics
-            self.total_frames_consumed += 1
-            
-            return oldest_frame
+            while queue:
+                frame = queue.popleft()
+                if frame.metadata.age() <= max_age:
+                    return frame
+            return None
     
-    def peek_latest_frame(self) -> Optional[FrameMetadata]:
+    def peek_latest_frame(self, client_id: str) -> Optional[FrameMetadata]:
         """
         Peek at latest frame metadata without consuming
         
+        Args:
+            client_id: ID of the client requesting the metadata
+            
         Returns:
             FrameMetadata: Metadata of latest frame or None if queue empty
         """
         with self._lock:
-            if not self._queue:
+            queue = self.client_queues.get(client_id)
+            if not queue:
                 return None
-            return self._queue[-1].metadata
+            return queue[-1].metadata
     
     def get_queue_metrics(self) -> Dict[str, Any]:
         """
@@ -332,3 +326,19 @@ class SharedFrameQueue:
     def __bool__(self) -> bool:
         """Check if queue has frames"""
         return len(self._queue) > 0
+    
+    def add_client(self, client_id: str):
+        """Initialize a new queue for the client"""
+        with self._lock:
+            self.client_queues[client_id] = deque(maxlen=self.max_size)
+            self.client_last_seen[client_id] = time.time()
+    
+    def remove_client(self, client_id: str):
+        """Remove client's queue"""
+        with self._lock:
+            self.client_queues.pop(client_id, None)
+            self.client_last_seen.pop(client_id, None)
+    
+    def get_shared_queue(self):
+        """Return underlying shared frame queue structure"""
+        return self  # In per-client model, queue itself holds client_queues
