@@ -513,6 +513,8 @@ async def video_stream(token: str = Depends(verify_token_param)):
                 raise HTTPException(status_code=500, detail="Failed to setup video streaming")
         # Generate unique client ID and delegate to CameraManager
         client_id = f"client_{uuid.uuid4().hex[:8]}"
+        # Log session start
+        print(f"🔌 New stream session started: {client_id}")
         # CameraManager.generate_frames handles both queue-based (when client_id provided) and legacy
         gen = camera_manager.generate_frames(client_id)
         return StreamingResponse(
