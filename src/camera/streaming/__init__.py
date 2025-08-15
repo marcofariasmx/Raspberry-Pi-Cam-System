@@ -11,11 +11,13 @@ from .multi_quality_producer import MultiQualityFrameProducer
 from .simple_client_manager import SimpleClientManager
 from .network_performance_tracker import NetworkPerformanceTracker
 from .streaming_stats import StreamingStats
+from .optimized_stream_output import OptimizedStreamingOutput
 
 __all__ = [
     'EfficientStreamingSystem',
     'MultiQualityFrameProducer',
     'SimpleClientManager', 
     'NetworkPerformanceTracker',
-    'StreamingStats'
+    'StreamingStats',
+    'OptimizedStreamingOutput'
 ]

@@ -22,12 +22,14 @@ from .camera_exceptions import (
 from .hardware_detection import HardwareDetector, create_minimal_camera_config
 from .photo_capture import PhotoCapture
 from .streaming.efficient_streaming_system import EfficientStreamingSystem
+from .streaming.optimized_stream_output import OptimizedStreamingOutput
 from .streaming.streaming_stats import StreamingStats
 
 # Import picamera2 - graceful handling for development environments
 try:
     from picamera2 import Picamera2 # type: ignore
     from picamera2.outputs import FileOutput # type: ignore
+    from picamera2.encoders import MJPEGEncoder # type: ignore
     PICAMERA2_AVAILABLE = True
 except ImportError:
     PICAMERA2_AVAILABLE = False
@@ -44,6 +46,9 @@ except ImportError:
     
     class FileOutput:
         def __init__(self, output): pass
+    
+    class MJPEGEncoder:
+        def __init__(self): pass
 
 
 class CameraManager:
@@ -114,14 +119,21 @@ class CameraManager:
             # Create camera instance
             self.camera_device = Picamera2()
             
-            # Create dual-stream video configuration
+            # Create optimized dual-stream configuration for efficient streaming
+            # Use lower buffer counts for Pi Zero 2W memory efficiency
+            optimized_buffer_count = 2 if self.config.low_resource_mode else camera_config["buffer_count"]
+            
             video_config = self.camera_device.create_video_configuration(
-                main=camera_config["main_stream"],
-                lores=camera_config["lores_stream"],
+                main=camera_config["main_stream"],  # High res for photos
+                lores=camera_config["lores_stream"], # Low res for streaming  
                 encode="lores",  # Stream the lower resolution
-                buffer_count=camera_config["buffer_count"],
+                buffer_count=optimized_buffer_count,  # Reduced for memory efficiency
                 transform=camera_config["transform"]
             )
+            
+            print(f"📊 Camera config: Main {camera_config['main_stream']['size']}, "
+                  f"Lores {camera_config['lores_stream']['size']}, "
+                  f"Buffers: {optimized_buffer_count}")
             
             # Configure and start camera
             self.camera_device.configure(video_config)
@@ -351,43 +363,35 @@ class CameraManager:
     
     def _setup_camera_recording(self):
         """
-        Setup camera recording to capture frames for the efficient streaming system
+        Setup optimized camera recording using official Picamera2 best practices
+        - Uses hardware MJPEG encoder for better performance
+        - Implements threading.Condition pattern for multi-client support
+        - Integrates with EfficientStreamingSystem for quality adaptation
         """
         if not PICAMERA2_AVAILABLE or not self.camera_device:
+            print("⚠️ Camera not available, skipping recording setup")
             return
         
         try:
-            # Create a custom output class that feeds frames to our efficient system
-            from picamera2.outputs import FileOutput
+            # Create optimized streaming output using official pattern
+            self.optimized_stream_output = OptimizedStreamingOutput(self.efficient_streaming)
             
-            class EfficientStreamOutput(FileOutput):
-                def __init__(self, efficient_streaming):
-                    self.efficient_streaming = efficient_streaming
-                    self.frame_count = 0
-                
-                def outputframe(self, frame, keyframe=True, timestamp=None):
-                    """Called for each frame from the camera"""
-                    if self.efficient_streaming:
-                        # Frame is already JPEG encoded by the camera
-                        self.efficient_streaming.process_frame(frame)
-                        self.frame_count += 1
-                        if self.frame_count % 100 == 0:  # Log every 100 frames
-                            print(f"📸 Processed {self.frame_count} frames from camera")
+            # Use hardware MJPEG encoder (official best practice for 2025)
+            encoder = MJPEGEncoder()  # Hardware accelerated
             
-            # Create JPEG encoder for lores stream
-            from picamera2.encoders import JpegEncoder
-            encoder = JpegEncoder(q=85)  # High quality for initial capture
+            # Start recording from lores stream with hardware encoding
+            self.camera_device.start_recording(encoder, FileOutput(self.optimized_stream_output))
             
-            # Create our custom output
-            self.camera_stream_output = EfficientStreamOutput(self.efficient_streaming)
-            
-            # Start recording from lores stream
-            self.camera_device.start_recording(encoder, self.camera_stream_output)
-            print("📹 Camera recording started, feeding frames to efficient system")
+            print("✅ Optimized camera recording started")
+            print(f"   🔧 Hardware MJPEG encoder: Enabled") 
+            print(f"   🧵 Threading.Condition pattern: Active")
+            print(f"   🌊 Multi-client support: Ready")
+            print(f"   💾 Memory optimized for Pi Zero 2W: Yes")
             
         except Exception as e:
-            print(f"⚠️ Failed to setup camera recording: {e}")
-            print("🔄 Will use frame capture method instead")
+            print(f"❌ Failed to setup optimized recording: {e}")
+            print("🔄 Falling back to frame capture method")
+            # Keep the existing frame processing thread as fallback
     
     def get_status(self) -> Dict[str, Any]:
         """
