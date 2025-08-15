@@ -1,18 +1,21 @@
 """
 Camera Streaming Module
 
-Handles video streaming, adaptive quality control, network performance monitoring,
-and streaming statistics for the Raspberry Pi Camera System.
+Efficient streaming system for Raspberry Pi camera with per-client adaptive quality,
+minimal memory usage, and optimal performance for Pi Zero 2W compatibility.
 """
 
-from .video_streaming import StreamOutput
-from .quality_adaptation import QualityAdapter
-from .network_performance import NetworkMonitor
+# Efficient streaming components
+from .efficient_streaming_system import EfficientStreamingSystem
+from .multi_quality_producer import MultiQualityFrameProducer
+from .simple_client_manager import SimpleClientManager
+from .network_performance_tracker import NetworkPerformanceTracker
 from .streaming_stats import StreamingStats
 
 __all__ = [
-    'StreamOutput',
-    'QualityAdapter', 
-    'NetworkMonitor',
+    'EfficientStreamingSystem',
+    'MultiQualityFrameProducer',
+    'SimpleClientManager', 
+    'NetworkPerformanceTracker',
     'StreamingStats'
 ]
