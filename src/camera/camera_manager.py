@@ -205,7 +205,12 @@ class CameraManager:
             if self.efficient_streaming and self.efficient_streaming.start_streaming():
                 self.is_streaming = True
                 
-                # Start background frame processing thread
+                # Start camera recording to memory stream for frame capture
+                if PICAMERA2_AVAILABLE and self.camera_device:
+                    # Create a custom output that feeds frames to our efficient system
+                    self._setup_camera_recording()
+                
+                # Start background frame processing thread (for fallback/mock frames if needed)
                 self._start_frame_processing_thread()
                 
                 # Print status
@@ -251,6 +256,7 @@ class CameraManager:
             if self.camera_device and PICAMERA2_AVAILABLE:
                 try:
                     self.camera_device.stop_recording()
+                    print("📹 Camera recording stopped")
                 except:
                     pass  # May not be recording
             
@@ -321,31 +327,67 @@ class CameraManager:
         """
         print("🎬 Frame processing loop started")
         
-        # Mock frame data for development without actual camera
+        # Mock frame data fallback for development
         mock_frame_data = b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.\'\" &\x1c\x1c(7),01444\x1f\'9=82<.342\xff\xc0\x00\x11\x08\x00\x96\x00\x96\x01\x01"\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00\xaa\xff\xd9'  # Minimal JPEG
         
         while self._frame_processing_active and self.is_streaming:
             try:
-                if PICAMERA2_AVAILABLE and self.camera_device:
-                    # In real implementation, capture frame from camera
-                    # For now, use mock data
-                    frame_data = mock_frame_data
-                else:
-                    # Use mock frame for development
-                    frame_data = mock_frame_data
+                # This loop now serves as a fallback and health check
+                # Primary frame feeding is done by camera recording -> EfficientStreamOutput
                 
-                # Process frame through efficient streaming system
-                if self.efficient_streaming and frame_data:
-                    self.efficient_streaming.process_frame(frame_data)
+                if not (PICAMERA2_AVAILABLE and self.camera_device):
+                    # Only use mock frames when camera is not available
+                    if self.efficient_streaming:
+                        self.efficient_streaming.process_frame(mock_frame_data)
                 
-                # Sleep to control frame rate (30 FPS = ~33ms)
-                time.sleep(0.033)
+                # Sleep for longer since camera recording handles the main feed
+                time.sleep(1.0)  # Check every second instead of every 33ms
                 
             except Exception as e:
                 print(f"❌ Error in frame processing loop: {e}")
                 time.sleep(0.1)  # Brief pause on error
         
         print("🔚 Frame processing loop ended")
+    
+    def _setup_camera_recording(self):
+        """
+        Setup camera recording to capture frames for the efficient streaming system
+        """
+        if not PICAMERA2_AVAILABLE or not self.camera_device:
+            return
+        
+        try:
+            # Create a custom output class that feeds frames to our efficient system
+            from picamera2.outputs import FileOutput
+            
+            class EfficientStreamOutput(FileOutput):
+                def __init__(self, efficient_streaming):
+                    self.efficient_streaming = efficient_streaming
+                    self.frame_count = 0
+                
+                def outputframe(self, frame, keyframe=True, timestamp=None):
+                    """Called for each frame from the camera"""
+                    if self.efficient_streaming:
+                        # Frame is already JPEG encoded by the camera
+                        self.efficient_streaming.process_frame(frame)
+                        self.frame_count += 1
+                        if self.frame_count % 100 == 0:  # Log every 100 frames
+                            print(f"📸 Processed {self.frame_count} frames from camera")
+            
+            # Create JPEG encoder for lores stream
+            from picamera2.encoders import JpegEncoder
+            encoder = JpegEncoder(q=85)  # High quality for initial capture
+            
+            # Create our custom output
+            self.camera_stream_output = EfficientStreamOutput(self.efficient_streaming)
+            
+            # Start recording from lores stream
+            self.camera_device.start_recording(encoder, self.camera_stream_output)
+            print("📹 Camera recording started, feeding frames to efficient system")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to setup camera recording: {e}")
+            print("🔄 Will use frame capture method instead")
     
     def get_status(self) -> Dict[str, Any]:
         """
