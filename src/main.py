@@ -500,8 +500,8 @@ async def capture_photo(api_key: str = Depends(verify_api_key)):
 
 
 @app.get("/api/camera/stream")
-async def video_stream(token: str = Depends(verify_token_param)):
-    """MJPEG video stream endpoint"""
+async def video_stream(token: str = Depends(verify_token_param), client_id: Optional[str] = None):
+    """MJPEG video stream endpoint with per-client adaptive quality"""
     if not camera_manager:
         raise HTTPException(status_code=500, detail="Camera manager not available")
     
@@ -511,9 +511,9 @@ async def video_stream(token: str = Depends(verify_token_param)):
             if not camera_manager.setup_streaming():
                 raise HTTPException(status_code=500, detail="Failed to setup video streaming")
         
-        # Return streaming response
+        # Return streaming response with client-specific adaptation
         return StreamingResponse(
-            camera_manager.generate_frames(),
+            camera_manager.generate_frames(client_id=client_id),
             media_type="multipart/x-mixed-replace; boundary=frame"
         )
         
@@ -521,6 +521,129 @@ async def video_stream(token: str = Depends(verify_token_param)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Streaming failed: {str(e)}")
+
+
+@app.get("/api/camera/stream/clients")
+async def get_active_clients(api_key: str = Depends(verify_api_key)):
+    """Get information about all active streaming clients"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        if hasattr(camera_manager, 'efficient_streaming') and camera_manager.efficient_streaming:
+            clients_info = camera_manager.efficient_streaming.get_all_clients_info()
+            active_clients = camera_manager.efficient_streaming.get_active_clients()
+            
+            return {
+                "status": "success",
+                "active_clients": active_clients,
+                "clients_info": clients_info,
+                "total_active": len(active_clients),
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            return {
+                "status": "success", 
+                "message": "Legacy streaming mode - client tracking not available",
+                "active_clients": [],
+                "clients_info": {},
+                "total_active": 0
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get client info: {str(e)}")
+
+
+@app.get("/api/camera/stream/clients/{client_id}")
+async def get_client_info(client_id: str, api_key: str = Depends(verify_api_key)):
+    """Get information about a specific streaming client"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        client_info = camera_manager.get_client_info(client_id)
+        if client_info:
+            return {
+                "status": "success",
+                "client_info": client_info,
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get client info: {str(e)}")
+
+
+@app.post("/api/camera/stream/clients/{client_id}/quality")
+async def set_client_quality(client_id: str, quality: int, api_key: str = Depends(verify_api_key)):
+    """Force a specific quality for a client"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    if quality < 30 or quality > 85:
+        raise HTTPException(status_code=400, detail="Quality must be between 30 and 85")
+    
+    try:
+        success = camera_manager.force_client_quality(client_id, quality)
+        if success:
+            return {
+                "status": "success",
+                "message": f"Client {client_id} quality set to {quality}%",
+                "client_id": client_id,
+                "quality": quality,
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set client quality: {str(e)}")
+
+
+@app.delete("/api/camera/stream/clients/{client_id}")
+async def disconnect_client(client_id: str, api_key: str = Depends(verify_api_key)):
+    """Disconnect a specific streaming client"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        success = camera_manager.disconnect_client(client_id)
+        return {
+            "status": "success" if success else "warning",
+            "message": f"Client {client_id} disconnected" if success else f"Client {client_id} was not active",
+            "client_id": client_id,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to disconnect client: {str(e)}")
+
+
+@app.get("/api/camera/stream/efficiency")
+async def get_memory_efficiency(api_key: str = Depends(verify_api_key)):
+    """Get memory efficiency report for Pi Zero 2W compatibility"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        if hasattr(camera_manager, 'efficient_streaming') and camera_manager.efficient_streaming:
+            efficiency_report = camera_manager.efficient_streaming.get_memory_efficiency_report()
+            
+            return {
+                "status": "success",
+                "efficiency_report": efficiency_report,
+                "pi_zero_compatible": efficiency_report["is_efficient"],
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            return {
+                "status": "warning",
+                "message": "Legacy streaming mode - efficiency metrics not available",
+                "pi_zero_compatible": False
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get efficiency report: {str(e)}")
 
 
 @app.post("/api/camera/stream/stop")
@@ -546,7 +669,7 @@ async def stop_stream(api_key: str = Depends(verify_api_key)):
 
 @app.get("/api/camera/stream/stats")
 async def get_streaming_stats(api_key: str = Depends(verify_api_key)):
-    """Get detailed streaming performance statistics"""
+    """Get detailed efficient streaming performance statistics"""
     if not camera_manager:
         raise HTTPException(status_code=500, detail="Camera manager not available")
     
