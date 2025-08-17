@@ -2,6 +2,7 @@
 Simple Client Manager
 Manages individual client streams with per-client quality adaptation
 based on real-time network performance measurement.
+Enhanced with network optimization for Pi Zero 2W efficiency.
 """
 
 import time
@@ -11,6 +12,7 @@ from typing import Dict, Generator, Optional, Any
 from dataclasses import dataclass, field
 
 from .multi_quality_producer import MultiQualityFrameProducer, QualityFrame
+from .network_optimizer import NetworkOptimizer, ConnectionPool
 
 
 @dataclass
@@ -163,12 +165,16 @@ class SimpleClientManager:
         self.active_streams: set = set()
         self._lock = threading.RLock()
         
+        # Network optimization pool - no artificial limits, let hardware be the constraint
+        self.connection_pool = ConnectionPool(max_connections=32)  # High limit, hardware will naturally constrain
+        
         # Performance tracking
         self.total_clients_created = 0
         self.total_frames_served = 0
         self.last_cleanup_time = time.time()
         
-        print("🌊 SimpleClientManager initialized")
+        print("🌊 SimpleClientManager initialized with network optimization")
+        print("📊 Connection pool ready - no artificial limits, hardware will naturally constrain")
     
     def create_client_stream(self, client_id: Optional[str] = None, 
                            initial_quality: int = 85, target_fps: int = 30) -> Generator[bytes, None, None]:
@@ -200,11 +206,16 @@ class SimpleClientManager:
             self.active_streams.add(client_id)
             self.total_clients_created += 1
         
+        # Get network optimizer for this client
+        network_optimizer = self.connection_pool.get_optimizer(client_id)
+        
         print(f"👤 Client stream created: {client_id} (quality: {initial_quality}%, fps: {target_fps})")
+        print(f"🌐 Network optimizer assigned for optimized delivery")
         
         try:
             last_frame_time = 0.0
             frame_interval = 1.0 / max(target_fps, 1)
+            pending_data = b''  # Track any pending batched data
             
             while client_id in self.active_streams:
                 try:
@@ -235,17 +246,29 @@ class SimpleClientManager:
                             quality_frame.data + b'\r\n'
                         )
                         
-                        # Calculate delivery time and yield frame
-                        delivery_time = time.time() - frame_start_time
+                        # Use network optimizer for batching and optimization
+                        batched_data = network_optimizer.prepare_frame_data(mjpeg_frame)
                         
-                        # Update client state
-                        with self._lock:
-                            if client_id in self.clients:
-                                self.clients[client_id].record_delivery(delivery_time)
-                                self.total_frames_served += 1
+                        # Yield any batched data that's ready
+                        if batched_data:
+                            delivery_time = time.time() - frame_start_time
+                            
+                            # Update client state
+                            with self._lock:
+                                if client_id in self.clients:
+                                    self.clients[client_id].record_delivery(delivery_time)
+                                    self.total_frames_served += 1
+                            
+                            yield batched_data
+                            last_frame_time = current_time
                         
-                        yield mjpeg_frame
-                        last_frame_time = current_time
+                        # Also check for any pending data from previous frames
+                        elif pending_data:
+                            # Force flush if we have old pending data
+                            forced_flush = network_optimizer.flush_pending_data()
+                            if forced_flush:
+                                yield forced_flush
+                                last_frame_time = current_time
                         
                         # Check for quality adaptation
                         self._check_client_adaptation(client_id)
@@ -267,6 +290,14 @@ class SimpleClientManager:
                     break
         
         finally:
+            # Flush any remaining data and cleanup network optimizer
+            final_flush = network_optimizer.flush_pending_data()
+            if final_flush:
+                yield final_flush
+            
+            # Remove from connection pool
+            self.connection_pool.remove_connection(client_id)
+            
             self._disconnect_client(client_id)
             print(f"🔚 Client stream ended: {client_id}")
     
@@ -408,6 +439,9 @@ class SimpleClientManager:
             qualities = [c.current_quality for c in active_clients]
             delivery_times = [c.average_delivery_time for c in active_clients if c.delivery_times]
             
+            # Get network optimization metrics
+            network_metrics = self.connection_pool.get_pool_metrics()
+            
             return {
                 "active_clients": len(active_clients),
                 "total_clients_created": self.total_clients_created,
@@ -424,6 +458,13 @@ class SimpleClientManager:
                 "adaptation_stats": {
                     "clients_adapting_down": sum(1 for c in active_clients if c.consecutive_poor > 0),
                     "clients_adapting_up": sum(1 for c in active_clients if c.consecutive_good > 0),
+                },
+                "network_optimization": {
+                    "connection_pool": network_metrics["pool_stats"],
+                    "total_throughput_kbps": network_metrics["aggregate_metrics"]["average_throughput_kbps"],
+                    "optimization_efficiency": network_metrics["optimization_summary"]["batching_efficiency"],
+                    "all_connections_optimized": network_metrics["optimization_summary"]["all_optimized"],
+                    "pi_zero_optimized": network_metrics["aggregate_metrics"]["average_throughput_kbps"] > 100  # >100KB/s target
                 }
             }
     

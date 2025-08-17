@@ -24,6 +24,7 @@ from .photo_capture import PhotoCapture
 from .streaming.efficient_streaming_system import EfficientStreamingSystem
 from .streaming.optimized_stream_output import OptimizedStreamingOutput
 from .streaming.streaming_stats import StreamingStats
+from .streaming.isp_multi_stream import ISPMultiStreamManager, create_optimized_isp_config
 
 # Import picamera2 - graceful handling for development environments
 try:
@@ -73,6 +74,7 @@ class CameraManager:
         
         # Efficient streaming system
         self.efficient_streaming: Optional[EfficientStreamingSystem] = None
+        self.isp_multi_stream: Optional[ISPMultiStreamManager] = None
         self.is_streaming = False
         
         # Initialize efficient streaming system
@@ -142,6 +144,9 @@ class CameraManager:
             # Wait for camera to stabilize
             time.sleep(2)
             
+            # Initialize ISP multi-stream for hardware scaling
+            self._setup_isp_multi_stream()
+            
             print("✅ Camera initialized successfully")
             return True
             
@@ -168,12 +173,50 @@ class CameraManager:
             self.camera_device.start()
             time.sleep(2)
             
+            # Setup ISP multi-stream even with minimal config
+            self._setup_isp_multi_stream()
+            
             print("✅ Minimal camera configuration successful")
             return True
             
         except Exception as e:
             print(f"❌ Even minimal config failed: {e}")
             return False
+    
+    def _setup_isp_multi_stream(self):
+        """Setup ISP multi-stream for hardware scaling optimization"""
+        if not self.camera_device or not PICAMERA2_AVAILABLE:
+            print("⚠️ ISP multi-stream setup skipped (camera/Picamera2 not available)")
+            return
+        
+        try:
+            # Determine optimal base resolution based on camera capabilities
+            camera_info = self.hardware_detector.get_camera_info()
+            if camera_info and "resolution" in camera_info:
+                # Use detected resolution
+                base_resolution = tuple(camera_info["resolution"])
+            else:
+                # Fallback to conservative resolution for Pi Zero 2W
+                base_resolution = (1280, 720)  # 720p for better performance
+            
+            print(f"🎯 Setting up ISP multi-stream with base resolution: {base_resolution}")
+            
+            # Create optimized ISP configuration
+            self.isp_multi_stream = create_optimized_isp_config(
+                self.camera_device, 
+                base_resolution
+            )
+            
+            if self.isp_multi_stream and self.isp_multi_stream.is_configured:
+                print("✅ ISP multi-stream hardware scaling ready")
+                print(f"   📊 Configured quality levels: {list(self.isp_multi_stream.stream_configs.keys())}")
+                print(f"   🔧 Hardware scaling will eliminate CPU overhead for multi-quality")
+            else:
+                print("⚠️ ISP multi-stream configuration failed, will use software scaling fallback")
+                
+        except Exception as e:
+            print(f"⚠️ ISP multi-stream setup error: {e}")
+            print("🔄 Will continue with software-based quality adaptation")
     
     def capture_photo(self) -> Tuple[bool, str, str]:
         """
@@ -217,6 +260,13 @@ class CameraManager:
             if self.efficient_streaming and self.efficient_streaming.start_streaming():
                 self.is_streaming = True
                 
+                # Start ISP multi-stream capture if available
+                if self.isp_multi_stream and self.isp_multi_stream.is_configured:
+                    if self.isp_multi_stream.start_multi_stream_capture():
+                        print("🎯 ISP multi-stream capture started - hardware scaling active")
+                    else:
+                        print("⚠️ ISP multi-stream capture failed, falling back to single stream")
+                
                 # Start camera recording to memory stream for frame capture
                 if PICAMERA2_AVAILABLE and self.camera_device:
                     # Create a custom output that feeds frames to our efficient system
@@ -256,6 +306,11 @@ class CameraManager:
         
         try:
             print("🛑 Stopping efficient streaming system...")
+            
+            # Stop ISP multi-stream capture
+            if self.isp_multi_stream and self.isp_multi_stream.is_recording:
+                self.isp_multi_stream.stop_multi_stream_capture()
+                print("🎯 ISP multi-stream capture stopped")
             
             # Stop the efficient streaming system
             if self.efficient_streaming:
