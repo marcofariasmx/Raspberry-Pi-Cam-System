@@ -227,11 +227,15 @@ class SimpleClientManager:
                     quality_frame = self.frame_producer.get_frame(target_quality, max_age=2.0)
                     
                     if quality_frame:
-                        # Create MJPEG frame
+                        # Create MJPEG frame with quality metadata
                         mjpeg_frame = (
                             b'--frame\r\n'
                             b'Content-Type: image/jpeg\r\n' +
-                            f'Content-Length: {len(quality_frame.data)}\r\n\r\n'.encode() +
+                            f'Content-Length: {len(quality_frame.data)}\r\n'.encode() +
+                            f'X-Frame-Quality: {quality_frame.quality}\r\n'.encode() +
+                            f'X-Frame-Timestamp: {quality_frame.timestamp}\r\n'.encode() +
+                            f'X-Client-ID: {client_id}\r\n'.encode() +
+                            b'\r\n' +
                             quality_frame.data + b'\r\n'
                         )
                         
