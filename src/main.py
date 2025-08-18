@@ -315,8 +315,9 @@ async def web_logout(session = Depends(verify_session)):
 
 
 @app.get("/health")
+@app.head("/health")
 async def health_check():
-    """Enhanced public health check endpoint"""
+    """Enhanced public health check endpoint (supports HEAD for latency measurement)"""
     basic_health = {
         "status": "healthy",
         "service": "raspberry-pi-camera-web-app-enhanced",
@@ -500,8 +501,8 @@ async def capture_photo(api_key: str = Depends(verify_api_key)):
 
 
 @app.get("/api/camera/stream")
-async def video_stream(token: str = Depends(verify_token_param), client_id: Optional[str] = None):
-    """MJPEG video stream endpoint with per-client adaptive quality"""
+async def video_stream(client_id: Optional[str] = None):
+    """MJPEG video stream endpoint with per-client adaptive quality (no auth required)"""
     if not camera_manager:
         raise HTTPException(status_code=500, detail="Camera manager not available")
     

@@ -912,7 +912,7 @@
             statusDiv.style.display = 'block';
         }
 
-        // Initialize application after login
+        // Initialize application immediately (no auth required)
         async function initializeApp() {
             // Initialize metrics system
             frontendMetrics = new FrontendMetricsSystem();
@@ -929,9 +929,6 @@
             
             // Setup keyboard shortcuts
             setupKeyboardShortcuts();
-            
-            // Status updates now handled by metrics system
-            // statusUpdateInterval removed - obsolete
         }
         
         // Auto-start stream on login
