@@ -1,0 +1,1714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi Camera System</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            text-align: center;
+        }
+
+        .login-container h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .login-container p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .btn {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
+        .btn-success { background: linear-gradient(135deg, #56ccf2, #2f80ed); color: white; }
+        .btn-danger { background: linear-gradient(135deg, #ff6b6b, #ee5a52); color: white; }
+        .btn-secondary { background: linear-gradient(135deg, #a8a8a8, #7f7f7f); color: white; }
+        .btn-warning { background: linear-gradient(135deg, #ffa726, #ff7043); color: white; }
+
+        .camera-container {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .camera-stream {
+            max-width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            background: #f0f0f0;
+        }
+
+        .stream-placeholder {
+            padding: 60px 20px;
+            background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+            border-radius: 15px;
+            border: 2px dashed #ccc;
+        }
+
+        .stream-placeholder h3 {
+            color: #555;
+            margin-bottom: 10px;
+            font-size: 1.5em;
+        }
+
+        .stream-placeholder p {
+            color: #777;
+        }
+
+        .status {
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin: 15px 0;
+            text-align: center;
+            font-weight: 500;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .status.success {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: linear-gradient(135deg, #d1ecf1, #bee5eb);
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .photos-section {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .photos-section h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+
+        .photos-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .photo-card {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .photo-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .photo-card img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+        }
+
+        .photo-info {
+            padding: 15px;
+        }
+
+        .photo-info .filename {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .photo-info .details {
+            font-size: 0.9em;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+            background: white;
+        }
+
+        .form-group input:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .hidden { 
+            display: none !important; 
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .stat-card .label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        /* Stream-Focused Layout */
+        .stream-focused-layout {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .main-video-stream {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        .stream-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 20px;
+        }
+
+        /* Metrics Overlay */
+        .metrics-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            z-index: 10;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            max-width: 800px;
+        }
+
+        .metric-item {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            text-align: center;
+        }
+
+        .metric-label {
+            display: block;
+            font-size: 0.8em;
+            color: #ccc;
+            margin-bottom: 2px;
+        }
+
+        .metric-value {
+            display: block;
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        /* Signal Bars */
+        .signal-bars {
+            display: flex;
+            gap: 2px;
+            justify-content: center;
+            align-items: end;
+            height: 20px;
+        }
+
+        .signal-bars .bar {
+            width: 4px;
+            background: #666;
+            border-radius: 2px;
+            transition: background-color 0.3s ease;
+        }
+
+        .signal-bars .bar:nth-child(1) { height: 25%; }
+        .signal-bars .bar:nth-child(2) { height: 50%; }
+        .signal-bars .bar:nth-child(3) { height: 75%; }
+        .signal-bars .bar:nth-child(4) { height: 100%; }
+
+        .signal-bars.excellent .bar { background: #4CAF50; }
+        .signal-bars.good .bar:nth-child(-n+3) { background: #8BC34A; }
+        .signal-bars.fair .bar:nth-child(-n+2) { background: #FF9800; }
+        .signal-bars.poor .bar:nth-child(1) { background: #F44336; }
+
+        /* Connection Banner */
+        .connection-banner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255, 152, 0, 0.9);
+            color: white;
+            padding: 10px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-weight: bold;
+        }
+
+        .connection-banner.error {
+            background: rgba(244, 67, 54, 0.9);
+        }
+
+        .connection-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        /* Video Controls */
+        .video-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 15;
+        }
+
+        .video-container:hover .video-controls,
+        .video-controls.show {
+            opacity: 1;
+        }
+
+        .control-btn {
+            width: 50px;
+            height: 50px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-size: 1.5em;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+
+        /* Slide-out Menu */
+        .slide-menu {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 400px;
+            height: 100vh;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            transition: right 0.3s ease;
+            z-index: 20;
+            overflow-y: auto;
+        }
+
+        .slide-menu.open {
+            right: 0;
+        }
+
+        .menu-header {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .menu-header h3 {
+            margin: 0;
+            color: #333;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #666;
+        }
+
+        .menu-content {
+            padding: 20px;
+        }
+
+        .menu-section {
+            margin-bottom: 30px;
+        }
+
+        .menu-section h4 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        .status-display {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .status-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .status-connected {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .status-disconnected {
+            color: #F44336;
+            font-weight: bold;
+        }
+
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .action-btn {
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+        }
+
+        .action-btn:hover {
+            background: #f0f0f0;
+            border-color: #ccc;
+        }
+
+        .settings-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .setting-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+
+        .setting-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Logout button removed - direct access */
+
+        /* Photos modal removed - stream only */
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .metrics-grid {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+            }
+
+            .metric-item {
+                padding: 6px 8px;
+            }
+
+            .metric-label {
+                font-size: 0.7em;
+            }
+
+            .metric-value {
+                font-size: 0.9em;
+            }
+
+            .slide-menu {
+                width: 100vw;
+                right: -100vw;
+            }
+
+            .video-controls {
+                bottom: 10px;
+                right: 10px;
+                gap: 8px;
+            }
+
+            .control-btn {
+                width: 45px;
+                height: 45px;
+                font-size: 1.3em;
+            }
+
+            .modal-content {
+                max-width: 95vw;
+                max-height: 95vh;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .metrics-overlay {
+                top: 10px;
+                left: 10px;
+                right: 10px;
+            }
+
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 6px;
+            }
+
+            .video-controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Direct Stream Access (No Login Required) -->
+    <div id="mainApp" class="container">
+        <!-- Stream-Focused Layout -->
+        <div class="stream-focused-layout">
+            <!-- Video Stream (Main Focus) -->
+            <div class="video-container">
+                <img id="cameraStream" class="main-video-stream" style="display:none;" />
+                <div id="streamPlaceholder" class="stream-loading">
+                    <div class="loading-spinner"></div>
+                    <p>Starting camera stream...</p>
+                </div>
+                
+                <!-- Metrics Overlay -->
+                <div id="metricsOverlay" class="metrics-overlay">
+                    <div class="metrics-grid">
+                        <div class="metric-item">
+                            <span class="metric-label">FPS</span>
+                            <span id="fpsValue" class="metric-value">--</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Quality</span>
+                            <span id="qualityValue" class="metric-value">--%</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Resolution</span>
+                            <span id="resolutionValue" class="metric-value">--</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Latency</span>
+                            <span id="latencyValue" class="metric-value">--ms</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Signal</span>
+                            <div id="signalBars" class="signal-bars">
+                                <div class="bar"></div>
+                                <div class="bar"></div>
+                                <div class="bar"></div>
+                                <div class="bar"></div>
+                            </div>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Time</span>
+                            <span id="timeValue" class="metric-value">--:--</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Connection Status Banner -->
+                    <div id="connectionBanner" class="connection-banner hidden">
+                        <span id="connectionText">Reconnecting...</span>
+                        <div class="connection-spinner"></div>
+                    </div>
+                </div>
+                
+                <!-- Touch/Click Controls (Auto-hide) -->
+                <div id="videoControls" class="video-controls">
+                    <button class="control-btn menu-btn" onclick="toggleMenu()" title="Menu">
+                        ⚙️
+                    </button>
+                    <button class="control-btn fullscreen-btn" onclick="toggleFullscreen()" title="Fullscreen (F)">
+                        ⛶
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Slide-out Menu -->
+            <div id="slideMenu" class="slide-menu">
+                <div class="menu-header">
+                    <h3>Camera Controls</h3>
+                    <button class="close-btn" onclick="toggleMenu()">✕</button>
+                </div>
+                
+                <div class="menu-content">
+                    <!-- Stream Status -->
+                    <div class="menu-section">
+                        <h4>Stream Status</h4>
+                        <div id="streamStatusDisplay" class="status-display">
+                            <div class="status-item">
+                                <span>Connection:</span>
+                                <span id="connectionStatus" class="status-connected">Connected</span>
+                            </div>
+                            <div class="status-item">
+                                <span>Uptime:</span>
+                                <span id="uptimeDisplay">00:00:00</span>
+                            </div>
+                            <div class="status-item">
+                                <span>Data:</span>
+                                <span id="dataUsage">0 KB/s</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Actions -->
+                    <div class="menu-section">
+                        <h4>Stream Control</h4>
+                        <div class="action-buttons">
+                            <button class="action-btn" onclick="refreshStream()">
+                                🔄 Refresh Stream
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Settings -->
+                    <div class="menu-section">
+                        <h4>Display Settings</h4>
+                        <div class="settings-group">
+                            <label class="setting-item">
+                                <input type="checkbox" id="showMetrics" checked onchange="toggleMetricsOverlay()">
+                                <span>Show Metrics Overlay</span>
+                            </label>
+                            <label class="setting-item">
+                                <input type="checkbox" id="autoHideControls" checked onchange="toggleAutoHide()">
+                                <span>Auto-hide Controls</span>
+                            </label>
+                            <label class="setting-item">
+                                <input type="checkbox" id="showTimestamp" checked onchange="toggleTimestamp()">
+                                <span>Show Timestamp</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- No logout needed - direct access -->
+                </div>
+            </div>
+            
+            <!-- No photos modal - stream only -->
+        </div>
+    </div>
+
+    <!-- Include Metrics Libraries -->
+    <script src="/static/frontend_metrics.js"></script>
+    <script src="/static/mjpeg_parser.js"></script>
+    
+    <script>
+        // Global State
+        let isStreaming = false;
+        let metricsUpdateInterval = null;
+        let autoHideTimer = null;
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 10;
+        let reconnectTimeout = null;
+        
+        // Metrics System
+        let frontendMetrics = null;
+        let monitoredImage = null;
+        let optimizedFrameDetector = null; // Direct access to optimized FPS
+        
+        // Persistent client ID - reuse across reconnections
+        let persistentClientId = null;
+
+        // API helper function for session-based calls
+        async function sessionApiCall(endpoint, options = {}) {
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                },
+                credentials: 'same-origin' // Include cookies
+            };
+            
+            const response = await fetch(endpoint, { ...options, ...defaultOptions });
+            
+            if (!response.ok) {
+                if (response.status === 401) {
+                    // Session expired, redirect to login
+                    showSessionExpired();
+                    return null;
+                }
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}`);
+            }
+            
+            return response;
+        }
+
+        // Session expired handler
+        function showSessionExpired() {
+            showStatus('🔒 Session expired, please login again', 'error');
+            setTimeout(() => {
+                logout();
+            }, 2000);
+        }
+
+        // Login function
+        async function login() {
+            const password = document.getElementById('password').value;
+            const statusDiv = document.getElementById('loginStatus');
+            const spinner = document.getElementById('loginSpinner');
+            const text = document.getElementById('loginText');
+            
+            if (!password) {
+                showLoginStatus('Please enter a password', 'error');
+                return;
+            }
+            
+            // Show loading state
+            spinner.classList.remove('hidden');
+            text.textContent = 'Authenticating...';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ password: password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'success') {
+                    isAuthenticated = true;
+                    
+                    // For streaming, we'll need to get a token
+                    // Note: We still need the API key for video streaming since it uses query params
+                    // We'll request it from a session endpoint
+                    await getStreamingToken();
+                    
+                    // Hide login, show main app
+                    document.getElementById('loginScreen').classList.add('hidden');
+                    document.getElementById('mainApp').classList.remove('hidden');
+                    
+                    // Initialize main app
+                    await initializeApp();
+                    
+                } else {
+                    throw new Error(data.detail || 'Login failed');
+                }
+                
+            } catch (error) {
+                showLoginStatus(`❌ ${error.message}`, 'error');
+            } finally {
+                // Reset button state
+                spinner.classList.add('hidden');
+                text.textContent = '🔑 Login';
+            }
+        }
+
+        // Get streaming token for video stream
+        async function getStreamingToken() {
+            try {
+                const response = await sessionApiCall('/api/session/streaming-token');
+                if (response) {
+                    const data = await response.json();
+                    streamingToken = data.token;
+                }
+            } catch (error) {
+                console.warn('Could not get streaming token:', error);
+                // Streaming may not be available, but other features still work
+            }
+        }
+
+        function showLoginStatus(message, type) {
+            const statusDiv = document.getElementById('loginStatus');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+
+        // Initialize application immediately (no auth required)
+        async function initializeApp() {
+            // Initialize metrics system
+            frontendMetrics = new FrontendMetricsSystem();
+            
+            // Start stream immediately (stream-focused approach)
+            await startStreamAutomatically();
+            
+            // Start metrics monitoring
+            frontendMetrics.start();
+            startMetricsUpdates();
+            
+            // Setup auto-hide controls
+            setupAutoHideControls();
+            
+            // Setup keyboard shortcuts
+            setupKeyboardShortcuts();
+        }
+        
+        // Auto-start stream on login
+        async function startStreamAutomatically() {
+            showConnectionBanner('Starting camera stream...', false);
+            
+            try {
+                const success = await startStreamWithReconnect();
+                if (!success) {
+                    showConnectionBanner('Failed to start stream. Retrying...', true);
+                    scheduleReconnect();
+                }
+            } catch (error) {
+                console.error('Auto-start failed:', error);
+                showConnectionBanner('Stream unavailable. Retrying...', true);
+                scheduleReconnect();
+            }
+        }
+
+        // Logout function
+        async function logout() {
+            try {
+                // Call logout endpoint to invalidate session
+                await sessionApiCall('/api/auth/logout', { method: 'POST' });
+            } catch (error) {
+                console.warn('Logout API call failed:', error);
+            }
+            
+            isAuthenticated = false;
+            streamingToken = null;
+            
+            // Clear intervals
+            // statusUpdateInterval removed - obsolete
+            
+            // Stop streaming
+            if (isStreaming) {
+                stopStream();
+            }
+            
+            // Reset UI
+            document.getElementById('loginScreen').classList.remove('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+            document.getElementById('password').value = '';
+            document.getElementById('loginStatus').style.display = 'none';
+        }
+
+        // Update camera status
+        async function updateCameraStatus() {
+            try {
+                const response = await sessionApiCall('/api/session/camera/status');
+                if (!response) return; // Session expired
+                
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('status');
+                if (data.available) {
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = `✅ Camera ready (${data.library}) - ${data.module}`;
+                    
+                    // Update stats
+                    document.getElementById('cameraModule').textContent = data.module || 'Unknown';
+                    document.getElementById('streamStatus').textContent = data.streaming ? '🔴' : '⚫';
+                    document.getElementById('streamStatus').style.color = data.streaming ? '#ff4444' : '#666';
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = '❌ Camera not available';
+                    document.getElementById('cameraModule').textContent = 'N/A';
+                    document.getElementById('streamStatus').textContent = '⚫';
+                }
+            } catch (error) {
+                console.error('Status check failed:', error);
+                const statusDiv = document.getElementById('status');
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '❌ Connection failed';
+            }
+        }
+
+        // Capture photo
+        async function capturePhoto() {
+            try {
+                showStatus('📸 Capturing photo...', 'info');
+                
+                const response = await sessionApiCall('/api/session/camera/capture');
+                if (!response) return; // Session expired
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    showStatus(`✅ Photo captured: ${data.filename}`, 'success');
+                    await loadPhotos(); // Refresh photos
+                } else {
+                    throw new Error(data.message || 'Capture failed');
+                }
+            } catch (error) {
+                showStatus(`❌ Capture failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Enhanced stream with automatic reconnection (no auth required)
+        async function startStreamWithReconnect() {
+            
+            const img = document.getElementById('cameraStream');
+            const placeholder = document.getElementById('streamPlaceholder');
+            
+            return new Promise((resolve) => {
+                // Generate or reuse persistent client ID
+                if (!persistentClientId) {
+                    persistentClientId = 'client_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+                    console.log('🆔 Created persistent client ID:', persistentClientId);
+                } else {
+                    console.log('🆔 Reusing client ID:', persistentClientId);
+                }
+                const streamUrl = `/api/camera/stream?client_id=${persistentClientId}&t=${new Date().getTime()}`;
+                
+                // Setup image handlers
+                img.onload = () => {
+                    console.log('🎥 Stream image loaded');
+                    img.style.display = 'block';
+                    placeholder.style.display = 'none';
+                    isStreaming = true;
+                    reconnectAttempts = 0;
+                    
+                    // Initialize monitoring with real frame detection
+                    if (frontendMetrics) {
+                        frontendMetrics.setVideoElement(img);
+                        console.log('📊 Metrics system initialized');
+                        
+                        // Start optimized frame detection (research-based)
+                        optimizedFrameDetector = startOptimizedFrameDetection(img);
+                        
+                        // Hide banner once we detect the first actual frame
+                        setTimeout(() => {
+                            checkStreamReady(img);
+                        }, 500);
+                        
+                        // Fallback: Always hide banner after 15 seconds regardless
+                        setTimeout(() => {
+                            console.log('🎥 🆘 Fallback banner hide after 15 seconds');
+                            hideConnectionBanner();
+                        }, 15000);
+                    } else {
+                        // Fallback if no metrics system
+                        setTimeout(() => {
+                            hideConnectionBanner();
+                        }, 1000);
+                    }
+                    
+                    // Setup simplified connection monitoring
+                    setupSimpleConnectionMonitoring();
+                    
+                    console.log('🎥 Stream setup complete');
+                    resolve(true);
+                };
+                
+                img.onerror = () => {
+                    console.error('Stream failed to load');
+                    if (frontendMetrics) {
+                        frontendMetrics.onConnectionLost();
+                    }
+                    resolve(false);
+                };
+                
+                // Start stream
+                img.src = streamUrl;
+                
+                // Timeout fallback
+                setTimeout(() => {
+                    if (!isStreaming) {
+                        resolve(false);
+                    }
+                }, 10000);
+            });
+        }
+        
+        // Optimized MJPEG frame detection based on research best practices
+        function startOptimizedFrameDetection(img) {
+            // Highly optimized canvas for performance (8x6 = 48 pixels)
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 8;   // 4x smaller than before
+            canvas.height = 6;  // 4x smaller than before
+            
+            let lastHash = null;
+            let frameCount = 0;
+            const frameTimestamps = [];  // Rolling window for FPS calculation
+            let currentFPS = 0;
+            
+            // Optimal sampling rate: 33ms (~30fps checks) - research recommended
+            const frameDetectionInterval = setInterval(() => {
+                if (!isStreaming) {
+                    clearInterval(frameDetectionInterval);
+                    return;
+                }
+                
+                try {
+                    // Check if image is loaded and has dimensions
+                    if (!img.complete || img.naturalWidth === 0) {
+                        return;
+                    }
+                    
+                    // Draw tiny sample to canvas (very fast)
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    // Get image data for hash calculation
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const pixels = imageData.data;
+                    
+                    // Fast hash: sum every 4th pixel red value (research-based method)
+                    let hash = 0;
+                    for (let i = 0; i < pixels.length; i += 16) {
+                        hash += pixels[i]; // Red channel only
+                    }
+                    
+                    // Detect frame change
+                    if (lastHash !== null && hash !== lastHash) {
+                        const now = performance.now(); // Research: use Performance API
+                        frameTimestamps.push(now);
+                        frameCount++;
+                        
+                        // Keep only frames from last 1000ms for rolling FPS calculation
+                        while (frameTimestamps.length > 0 && frameTimestamps[0] <= now - 1000) {
+                            frameTimestamps.shift();
+                        }
+                        
+                        // Direct FPS calculation: frames in last second
+                        currentFPS = frameTimestamps.length;
+                        
+                        // Notify metrics system with actual frame detection
+                        if (frontendMetrics) {
+                            // Override the FPS calculation with our accurate measurement
+                            frontendMetrics.fpsMonitor.fps = currentFPS;
+                            frontendMetrics.fpsMonitor.totalFrames = frameCount;
+                            frontendMetrics.onFrameReceived(); // For connection health
+                        }
+                        
+                        // Update resolution occasionally (every 30 frames ~2 seconds at 15fps)
+                        if (frameCount % 30 === 0) {
+                            updateImageResolution(img);
+                        }
+                        
+                        // Debug logging occasionally
+                        if (frameCount % 50 === 0) {
+                            console.log(`📊 Optimized FPS: ${currentFPS.toFixed(1)} (${frameCount} total frames)`);
+                        }
+                    }
+                    
+                    lastHash = hash;
+                    
+                } catch (error) {
+                    console.warn('Optimized frame detection error:', error);
+                }
+            }, 33); // 33ms = ~30fps sampling (optimal per research)
+            
+            // Return object with cleanup and FPS getter
+            return {
+                cleanup: () => clearInterval(frameDetectionInterval),
+                getCurrentFPS: () => currentFPS,
+                getTotalFrames: () => frameCount
+            };
+        }
+        
+        // Debug-enabled stream ready check
+        function checkStreamReady(img) {
+            let checks = 0;
+            const maxChecks = 20; // Max 10 seconds
+            
+            console.log('🎥 Starting stream ready check...');
+            
+            const readyInterval = setInterval(() => {
+                checks++;
+                console.log(`🎥 Stream check ${checks}/${maxChecks}`);
+                
+                // Method 1: Check optimized frame detector
+                if (optimizedFrameDetector) {
+                    const totalFrames = optimizedFrameDetector.getTotalFrames();
+                    const currentFPS = optimizedFrameDetector.getCurrentFPS();
+                    console.log(`📊 Frame detector: ${totalFrames} frames, ${currentFPS} FPS`);
+                    
+                    if (totalFrames > 0) {
+                        console.log('🎥 ✅ Frames detected by optimized detector - hiding banner');
+                        hideConnectionBanner();
+                        clearInterval(readyInterval);
+                        return;
+                    }
+                } else {
+                    console.log('📊 No optimized frame detector available');
+                }
+                
+                // Method 2: Check image pixel data
+                try {
+                    console.log(`🖼️ Image state: complete=${img.complete}, naturalWidth=${img.naturalWidth}, naturalHeight=${img.naturalHeight}`);
+                    
+                    if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                        const testCanvas = document.createElement('canvas');
+                        const testCtx = testCanvas.getContext('2d');
+                        testCanvas.width = 1;
+                        testCanvas.height = 1;
+                        
+                        testCtx.drawImage(img, 0, 0, 1, 1);
+                        const pixel = testCtx.getImageData(0, 0, 1, 1).data;
+                        const pixelSum = pixel[0] + pixel[1] + pixel[2];
+                        
+                        console.log(`🎨 Pixel data: R=${pixel[0]}, G=${pixel[1]}, B=${pixel[2]}, Sum=${pixelSum}`);
+                        
+                        if (pixelSum > 0 && pixelSum < 765) {
+                            console.log('🎥 ✅ Real image data detected - hiding banner');
+                            hideConnectionBanner();
+                            clearInterval(readyInterval);
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('🎥 Stream ready check error:', error);
+                }
+                
+                // Method 3: Timeout fallback
+                if (checks >= maxChecks) {
+                    console.log('🎥 ⏰ Timeout reached - hiding banner anyway');
+                    hideConnectionBanner();
+                    clearInterval(readyInterval);
+                }
+            }, 500); // Check every 500ms
+        }
+        
+        // Update resolution from actual image element
+        function updateImageResolution(img) {
+            if (!frontendMetrics || !img) return;
+            
+            try {
+                // For img elements displaying MJPEG, we can get natural dimensions
+                const naturalWidth = img.naturalWidth;
+                const naturalHeight = img.naturalHeight;
+                const displayWidth = img.clientWidth;
+                const displayHeight = img.clientHeight;
+                
+                if (naturalWidth && naturalHeight) {
+                    // Update the quality detector with resolution info
+                    const qualityDetector = frontendMetrics.qualityDetector;
+                    if (qualityDetector) {
+                        qualityDetector.currentResolution = {
+                            source_width: naturalWidth,
+                            source_height: naturalHeight,
+                            display_width: displayWidth,
+                            display_height: displayHeight,
+                            aspect_ratio: Math.round((naturalWidth / naturalHeight) * 100) / 100,
+                            is_scaled: naturalWidth !== displayWidth || naturalHeight !== displayHeight,
+                            scale_factor: Math.round((displayWidth / naturalWidth) * 100) / 100
+                        };
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not update image resolution:', error);
+            }
+        }
+        
+        // Setup simplified connection monitoring
+        function setupSimpleConnectionMonitoring() {
+            // Very basic monitoring - just check if we lose connection
+            // No complex frame parsing to avoid performance issues
+            const monitorInterval = setInterval(() => {
+                if (!isStreaming) {
+                    clearInterval(monitorInterval);
+                    return;
+                }
+                
+                // Simple check - if metrics system is available and reports disconnection
+                if (frontendMetrics) {
+                    const health = frontendMetrics.healthMonitor.getMetrics();
+                    if (!health.is_connected && health.total_disconnections > 0) {
+                        console.warn('Stream disconnected, triggering reconnect');
+                        triggerReconnect();
+                        clearInterval(monitorInterval);
+                    }
+                }
+            }, 5000); // Check every 5 seconds instead of 2
+        }
+        
+        // Trigger reconnection
+        function triggerReconnect() {
+            if (frontendMetrics) {
+                frontendMetrics.onConnectionLost();
+            }
+            
+            showConnectionBanner('Connection lost. Reconnecting...', true);
+            scheduleReconnect();
+        }
+        
+        // Schedule reconnection with exponential backoff
+        function scheduleReconnect() {
+            if (reconnectAttempts >= maxReconnectAttempts) {
+                showConnectionBanner('Unable to connect. Please check your connection.', true);
+                return;
+            }
+            
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000); // Max 30s delay
+            reconnectAttempts++;
+            
+            if (frontendMetrics) {
+                frontendMetrics.onReconnectAttempt();
+            }
+            
+            showConnectionBanner(`Reconnecting... (attempt ${reconnectAttempts}/${maxReconnectAttempts})`, false);
+            
+            reconnectTimeout = setTimeout(async () => {
+                const success = await startStreamWithReconnect();
+                if (!success) {
+                    scheduleReconnect();
+                }
+            }, delay);
+        }
+        
+        // Legacy function for compatibility
+        function startStream() {
+            if (isStreaming) return;
+            startStreamAutomatically();
+        }
+        
+        // Refresh stream
+        function refreshStream() {
+            stopStream();
+            setTimeout(() => {
+                startStreamAutomatically();
+            }, 1000);
+        }
+
+        // Stop video stream
+        async function stopStream() {
+            if (!isStreaming) return;
+            
+            try {
+                const response = await sessionApiCall('/api/session/camera/stream/stop', { method: 'POST' });
+                if (!response) return; // Session expired
+                
+                const img = document.getElementById('cameraStream');
+                const placeholder = document.getElementById('streamPlaceholder');
+                
+                img.style.display = 'none';
+                img.src = '';
+                placeholder.style.display = 'block';
+                isStreaming = false;
+                
+                // Stream stopped - UI automatically updates via metrics system
+            } catch (error) {
+                console.error('Failed to stop stream:', error);
+                // Error display handled by connection banner
+            }
+        }
+
+        // Photo functionality removed - stream only
+
+        // Legacy status function - replaced by connection banner system
+        function showStatus(message, type) {
+            console.log(`Status (${type}): ${message}`);
+            // Status messages now handled by connection banner and metrics overlay
+        }
+
+        // UI Control Functions
+        function toggleMenu() {
+            const menu = document.getElementById('slideMenu');
+            menu.classList.toggle('open');
+        }
+        
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        // Photo modal functions removed - stream only
+        
+        function toggleMetricsOverlay() {
+            const overlay = document.getElementById('metricsOverlay');
+            const checkbox = document.getElementById('showMetrics');
+            overlay.style.display = checkbox.checked ? 'block' : 'none';
+        }
+        
+        function toggleAutoHide() {
+            const checkbox = document.getElementById('autoHideControls');
+            if (checkbox.checked) {
+                setupAutoHideControls();
+            } else {
+                clearTimeout(autoHideTimer);
+                document.getElementById('videoControls').classList.add('show');
+            }
+        }
+        
+        function toggleTimestamp() {
+            const checkbox = document.getElementById('showTimestamp');
+            const timeMetric = document.querySelector('.metric-item:has(#timeValue)');
+            if (timeMetric) {
+                timeMetric.style.display = checkbox.checked ? 'block' : 'none';
+            }
+        }
+        
+        // Auto-hide controls setup
+        function setupAutoHideControls() {
+            const videoContainer = document.querySelector('.video-container');
+            const controls = document.getElementById('videoControls');
+            
+            function resetAutoHide() {
+                clearTimeout(autoHideTimer);
+                controls.classList.add('show');
+                
+                if (document.getElementById('autoHideControls').checked) {
+                    autoHideTimer = setTimeout(() => {
+                        controls.classList.remove('show');
+                    }, 3000);
+                }
+            }
+            
+            videoContainer.addEventListener('mousemove', resetAutoHide);
+            videoContainer.addEventListener('touchstart', resetAutoHide);
+            videoContainer.addEventListener('click', resetAutoHide);
+            
+            resetAutoHide();
+        }
+        
+        // Keyboard shortcuts
+        function setupKeyboardShortcuts() {
+            document.addEventListener('keydown', (e) => {
+                switch(e.key.toLowerCase()) {
+                    case 'f':
+                        e.preventDefault();
+                        toggleFullscreen();
+                        break;
+                    case 'm':
+                        e.preventDefault();
+                        toggleMenu();
+                        break;
+                    case 'r':
+                        e.preventDefault();
+                        refreshStream();
+                        break;
+                    case 'escape':
+                        if (document.getElementById('slideMenu').classList.contains('open')) {
+                            toggleMenu();
+                        }
+                        break;
+                }
+            });
+        }
+        
+        // Connection banner functions
+        function showConnectionBanner(text, isError = false) {
+            const banner = document.getElementById('connectionBanner');
+            const textElement = document.getElementById('connectionText');
+            
+            textElement.textContent = text;
+            banner.className = isError ? 'connection-banner error' : 'connection-banner';
+            banner.classList.remove('hidden');
+        }
+        
+        function hideConnectionBanner() {
+            const banner = document.getElementById('connectionBanner');
+            const placeholder = document.getElementById('streamPlaceholder');
+            const img = document.getElementById('cameraStream');
+            
+            console.log('🎥 hideConnectionBanner called');
+            console.log('🎥 Banner element:', banner);
+            console.log('🎥 Placeholder element:', placeholder);
+            
+            // Hide both banner and placeholder
+            if (banner) {
+                banner.classList.add('hidden');
+                console.log('🎥 Banner hidden');
+            }
+            
+            if (placeholder) {
+                placeholder.style.display = 'none';
+                console.log('🎥 Placeholder hidden');
+            }
+            
+            if (img) {
+                img.style.display = 'block';
+                console.log('🎥 Stream image shown');
+            }
+        }
+        
+        // Metrics update system
+        function startMetricsUpdates() {
+            if (metricsUpdateInterval) {
+                clearInterval(metricsUpdateInterval);
+            }
+            
+            metricsUpdateInterval = setInterval(updateMetricsDisplay, 1000);
+        }
+        
+        async function updateMetricsDisplay() {
+            try {
+                // Simple time update always works
+                document.getElementById('timeValue').textContent = 
+                    new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                
+                // Get actual metrics from backend
+                await updateBackendMetrics();
+                
+                // Only update frontend metrics if available
+                if (frontendMetrics) {
+                    try {
+                        const metrics = frontendMetrics.getDisplayMetrics();
+                        
+                        // Update FPS from optimized detector (research-based, most accurate)
+                        let fpsToDisplay = '--';
+                        if (optimizedFrameDetector && optimizedFrameDetector.getCurrentFPS) {
+                            const optimizedFPS = optimizedFrameDetector.getCurrentFPS();
+                            fpsToDisplay = optimizedFPS > 0 ? optimizedFPS.toFixed(1) : '--';
+                        } else if (metrics.fps && metrics.fps > 0) {
+                            // Fallback to frontend metrics if optimized detector not available
+                            fpsToDisplay = metrics.fps.toFixed(1);
+                        }
+                        document.getElementById('fpsValue').textContent = fpsToDisplay;
+                        
+                        // Resolution from actual image element
+                        const resolution = metrics.resolution;
+                        document.getElementById('resolutionValue').textContent = 
+                            resolution ? `${resolution.source_width}×${resolution.source_height}` : '--';
+                        
+                        // Latency from frontend (actual ping time)
+                        document.getElementById('latencyValue').textContent = 
+                            metrics.latency_ms ? metrics.latency_ms + 'ms' : '--ms';
+                        
+                        // Simple signal indication
+                        updateSignalBars(metrics);
+                        
+                    } catch (metricsError) {
+                        // If frontend metrics fail, show what we can
+                        console.warn('Frontend metrics error:', metricsError);
+                        document.getElementById('fpsValue').textContent = '--';
+                        document.getElementById('resolutionValue').textContent = '--';
+                        document.getElementById('latencyValue').textContent = '--ms';
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Critical error updating display:', error);
+                // Don't let display update errors crash the app
+            }
+        }
+        
+        // Get actual metrics from backend API
+        async function updateBackendMetrics() {
+            try {
+                // Get streaming stats from backend (has actual quality and server FPS)
+                const response = await fetch('/api/camera/stream/stats/public', {
+                    method: 'GET'
+                });
+                
+                if (response.ok) {
+                    const stats = await response.json();
+                    console.log('📊 Full backend stats (expanded):', stats);
+                    console.log('📊 Quality info details:', stats.quality_info);
+                    
+                    // Update quality from backend (actual JPEG quality setting)
+                    if (stats.quality_info && stats.quality_info.current_quality !== null && stats.quality_info.current_quality !== undefined) {
+                        const quality = stats.quality_info.current_quality;
+                        document.getElementById('qualityValue').textContent = quality + '%';
+                        console.log('📊 Quality updated to:', quality + '%');
+                    } else {
+                        console.warn('📊 No valid quality info:', {
+                            hasQualityInfo: !!stats.quality_info,
+                            currentQuality: stats.quality_info?.current_quality,
+                            fullQualityInfo: stats.quality_info
+                        });
+                        document.getElementById('qualityValue').textContent = '--%';
+                    }
+                    
+                    // Could also show server FPS as additional info
+                    if (stats.performance && stats.performance.server_fps) {
+                        console.log('📊 Server FPS:', stats.performance.server_fps);
+                    }
+                } else {
+                    console.warn('📊 Backend stats request failed:', response.status, response.statusText);
+                }
+            } catch (error) {
+                console.warn('Could not get backend metrics:', error);
+                // Backend metrics optional - frontend metrics are primary
+            }
+        }
+        
+        function updateSignalBars(metrics) {
+            try {
+                const signalBars = document.getElementById('signalBars');
+                if (!signalBars) return;
+                
+                const latency = metrics.latency_ms;
+                
+                // Simple signal strength based on latency only
+                let signalClass = 'poor';
+                if (latency && latency > 0) {
+                    if (latency < 50) {
+                        signalClass = 'excellent';
+                    } else if (latency < 100) {
+                        signalClass = 'good';
+                    } else if (latency < 200) {
+                        signalClass = 'fair';
+                    }
+                } else if (isStreaming) {
+                    // If streaming but no latency data, assume fair
+                    signalClass = 'fair';
+                }
+                
+                signalBars.className = `signal-bars ${signalClass}`;
+            } catch (error) {
+                console.warn('Error updating signal bars:', error);
+            }
+        }
+        
+        function updateMenuStatus(metrics) {
+            // Connection status
+            const connectionStatus = document.getElementById('connectionStatus');
+            if (metrics.is_connected) {
+                connectionStatus.textContent = 'Connected';
+                connectionStatus.className = 'status-connected';
+            } else {
+                connectionStatus.textContent = 'Disconnected';
+                connectionStatus.className = 'status-disconnected';
+            }
+            
+            // Uptime
+            const uptimeDisplay = document.getElementById('uptimeDisplay');
+            if (metrics.uptime_seconds) {
+                const hours = Math.floor(metrics.uptime_seconds / 3600);
+                const minutes = Math.floor((metrics.uptime_seconds % 3600) / 60);
+                const seconds = metrics.uptime_seconds % 60;
+                uptimeDisplay.textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            } else {
+                uptimeDisplay.textContent = '00:00:00';
+            }
+            
+            // Data usage (rough estimate)
+            const dataUsage = document.getElementById('dataUsage');
+            if (metrics.frame_size_kb && metrics.fps) {
+                const kbps = metrics.frame_size_kb * metrics.fps;
+                dataUsage.textContent = `${kbps.toFixed(1)} KB/s`;
+            } else {
+                dataUsage.textContent = '0 KB/s';
+            }
+        }
+        
+        // Enhanced cleanup
+        function cleanup() {
+            if (metricsUpdateInterval) {
+                clearInterval(metricsUpdateInterval);
+                metricsUpdateInterval = null;
+            }
+            
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+            
+            if (frontendMetrics) {
+                frontendMetrics.stop();
+            }
+            
+            if (monitoredImage) {
+                monitoredImage.stopMonitoring();
+            }
+            
+            if (optimizedFrameDetector) {
+                optimizedFrameDetector.cleanup();
+                optimizedFrameDetector = null;
+            }
+        }
+        
+        // No logout function needed - direct access
+        
+        // Initialize immediately on page load (no login required)
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 Starting direct stream access...');
+            initializeApp();
+        });
+    </script>
+</body>
+</html>
