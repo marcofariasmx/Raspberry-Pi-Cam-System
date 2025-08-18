@@ -52,16 +52,9 @@ except ImportError:
             self.output = output
     
     class Transform:
-        @staticmethod
-        def HFLIP():
-            return None
-        
-        @staticmethod
-        def VFLIP():
-            return None
-        
-        def compose(self, other):
-            return self
+        def __init__(self, hflip=False, vflip=False):
+            self.hflip = hflip
+            self.vflip = vflip
 
 from .config import Config
 
@@ -161,12 +154,10 @@ class Camera:
             
             # Apply camera transforms if configured
             if self.config.camera_hflip or self.config.camera_vflip:
-                transform = Transform()
-                if self.config.camera_hflip:
-                    transform = transform.compose(Transform.HFLIP)
-                if self.config.camera_vflip:
-                    transform = transform.compose(Transform.VFLIP)
-                stream_config["transform"] = transform
+                stream_config["transform"] = Transform(
+                    hflip=self.config.camera_hflip,
+                    vflip=self.config.camera_vflip
+                )
             
             # Configure camera with our settings
             self.camera.configure(stream_config)
