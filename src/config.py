@@ -15,6 +15,13 @@ All settings can be customized via environment variables for deployment flexibil
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
 
 
 @dataclass
@@ -54,11 +61,15 @@ class Config:
 
 def get_config() -> Config:
     """
-    Create configuration instance with environment variable overrides.
+    Create configuration instance with .env file and environment variable overrides.
     
-    Loads the default configuration and applies any environment variable
-    overrides. This allows for flexible deployment configuration without
-    code changes.
+    Loads configuration in the following priority order:
+    1. Default values
+    2. .env file values (if available)  
+    3. Environment variable overrides (highest priority)
+    
+    This allows for flexible deployment configuration with .env files
+    for development and environment variables for production.
     
     Environment Variables:
         CAMERA_HOST: Override server host address
@@ -71,8 +82,17 @@ def get_config() -> Config:
         CAMERA_VFLIP: Enable vertical flip ("true"/"false")
     
     Returns:
-        Config: Configured instance with environment overrides applied
+        Config: Configured instance with .env and environment overrides applied
     """
+    # Load .env file if available
+    if DOTENV_AVAILABLE:
+        env_path = Path(__file__).parent.parent / ".env"
+        if env_path.exists():
+            load_dotenv(env_path)
+        else:
+            # Try loading from current working directory
+            load_dotenv()
+    
     return Config(
         host=os.getenv("CAMERA_HOST", "0.0.0.0"),
         port=int(os.getenv("CAMERA_PORT", "8000")),
