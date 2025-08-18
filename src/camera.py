@@ -19,17 +19,71 @@ configures optimal settings based on the provided configuration.
 import io
 import time
 import threading
+from threading import Condition
 from typing import Generator, Optional
 
 try:
     from picamera2 import Picamera2
+    from picamera2.encoders import JpegEncoder
+    from picamera2.outputs import FileOutput
     from libcamera import controls, Transform
     PICAMERA2_AVAILABLE = True
 except ImportError:
     PICAMERA2_AVAILABLE = False
     print("⚠️  Picamera2 not available - running in development mode")
+    
+    # Mock classes for development mode
+    class Picamera2:
+        def create_video_configuration(self, **kwargs):
+            return {}
+        def configure(self, config):
+            pass
+        def start_recording(self, encoder, output):
+            pass
+        def stop_recording(self):
+            pass
+    
+    class JpegEncoder:
+        def __init__(self, q=85):
+            self.quality = q
+    
+    class FileOutput:
+        def __init__(self, output):
+            self.output = output
+    
+    class Transform:
+        @staticmethod
+        def HFLIP():
+            return None
+        
+        @staticmethod
+        def VFLIP():
+            return None
+        
+        def compose(self, other):
+            return self
 
 from .config import Config
+
+
+class StreamingOutput(io.BufferedIOBase):
+    """
+    Thread-safe output buffer for Picamera2 MJPEG streaming.
+    
+    This class implements the proper Picamera2 streaming pattern using
+    condition variables for synchronization between frame capture and
+    HTTP streaming threads.
+    """
+    
+    def __init__(self):
+        self.frame = None
+        self.condition = Condition()
+
+    def write(self, buf):
+        """Write frame data and notify waiting threads."""
+        with self.condition:
+            self.frame = buf
+            self.condition.notify_all()
 
 
 class Camera:
@@ -64,6 +118,7 @@ class Camera:
         """
         self.config = config
         self.camera: Optional[Picamera2] = None
+        self.output: Optional[StreamingOutput] = None
         self.streaming = False
         self._lock = threading.Lock()
         
@@ -88,13 +143,15 @@ class Camera:
             bool: True if camera was successfully initialized, False otherwise
         """
         if not PICAMERA2_AVAILABLE:
+            # Initialize mock output for development mode
+            self.output = StreamingOutput()
             print("📷 Mock camera initialized (development mode)")
             return True
         
         try:
             self.camera = Picamera2()
             
-            # Create simple streaming configuration for the specified resolution and framerate
+            # Create streaming configuration for the specified resolution and framerate
             stream_config = self.camera.create_video_configuration(
                 main={"size": (self.config.stream_width, self.config.stream_height)},
                 controls={
@@ -111,11 +168,13 @@ class Camera:
                     transform = transform.compose(Transform.VFLIP)
                 stream_config["transform"] = transform
             
-            # Configure and start the camera with our settings
+            # Configure camera with our settings
             self.camera.configure(stream_config)
-            self.camera.start()
             
-            print(f"📷 Camera started - {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps")
+            # Create streaming output buffer
+            self.output = StreamingOutput()
+            
+            print(f"📷 Camera ready - {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps, quality {self.config.jpeg_quality}%")
             return True
             
         except Exception as e:
@@ -140,12 +199,16 @@ class Camera:
             
             if not PICAMERA2_AVAILABLE:
                 self.streaming = True
+                print("🎬 Mock video streaming started")
                 return True
             
-            if not self.camera:
+            if not self.camera or not self.output:
                 return False
             
             try:
+                # Create JPEG encoder with specified quality and start recording
+                encoder = JpegEncoder(q=self.config.jpeg_quality)
+                self.camera.start_recording(encoder, FileOutput(self.output))
                 self.streaming = True
                 print("🎬 Video streaming started")
                 return True
@@ -167,20 +230,28 @@ class Camera:
             if not self.streaming:
                 return True
             
-            self.streaming = False
-            print("🛑 Video streaming stopped")
-            return True
+            try:
+                if PICAMERA2_AVAILABLE and self.camera:
+                    self.camera.stop_recording()
+                self.streaming = False
+                print("🛑 Video streaming stopped")
+                return True
+            except Exception as e:
+                print(f"⚠️  Error stopping stream: {e}")
+                self.streaming = False
+                return True
     
     def generate_frames(self) -> Generator[bytes, None, None]:
         """
         Generate MJPEG video frames for streaming.
         
-        This generator continuously produces MJPEG frame data suitable for
-        HTTP streaming. Each frame is properly formatted with MJPEG boundaries
-        and headers for browser compatibility.
+        This generator uses the proper Picamera2 streaming approach with
+        condition variables to wait for new frames from the camera recording.
+        Each frame is properly formatted with MJPEG boundaries and headers
+        for browser compatibility.
         
         In development mode, generates synthetic frames for testing.
-        In production mode, captures frames from the camera hardware.
+        In production mode, waits for frames from the camera recording.
         
         The generator runs until streaming is stopped and handles errors
         gracefully by terminating the stream.
@@ -188,6 +259,9 @@ class Camera:
         Yields:
             bytes: MJPEG frame data with proper boundaries and headers
         """
+        if not self.output:
+            return
+            
         if not PICAMERA2_AVAILABLE:
             # Mock frame generator for development
             while self.streaming:
@@ -206,26 +280,25 @@ class Camera:
                 time.sleep(1.0 / self.config.stream_fps)
             return
         
-        if not self.camera:
-            return
-        
-        while self.streaming:
-            try:
-                # Capture frame to memory
-                stream = io.BytesIO()
-                self.camera.capture_file(stream, format='jpeg', quality=self.config.jpeg_quality)
-                frame_data = stream.getvalue()
-                stream.close()
-                
-                # Format as MJPEG
+        # Real Picamera2 streaming using condition variables
+        try:
+            while self.streaming:
+                with self.output.condition:
+                    self.output.condition.wait()
+                    frame = self.output.frame
+                    if frame is None:
+                        continue
+                        
+                # Format as MJPEG with proper boundaries
                 yield (
                     b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n'
+                    b'Content-Type: image/jpeg\r\n'
+                    b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' +
+                    frame + b'\r\n'
                 )
                 
-            except Exception as e:
-                print(f"❌ Frame capture error: {e}")
-                break
+        except Exception as e:
+            print(f"❌ Frame streaming error: {e}")
     
     def is_available(self) -> bool:
         """
@@ -258,9 +331,11 @@ class Camera:
         
         if self.camera:
             try:
-                self.camera.close()
+                if PICAMERA2_AVAILABLE:
+                    self.camera.close()
                 print("📷 Camera cleanup completed")
             except Exception as e:
                 print(f"⚠️  Camera cleanup error: {e}")
             finally:
                 self.camera = None
+                self.output = None
