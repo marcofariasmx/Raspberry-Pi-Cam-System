@@ -692,17 +692,31 @@ async def get_public_streaming_stats():
     try:
         stats = camera_manager.get_streaming_stats()
         
-        # Return only safe public metrics
+        # Map the actual streaming stats structure to expected format
+        system_perf = stats.get("system_performance", {})
+        client_mgr = stats.get("client_manager", {})
+        active_clients = stats.get("active_clients", {})
+        
+        # Extract current quality from client manager (if any clients exist)
+        current_quality = None
+        if active_clients:
+            # Get quality from first active client as representative
+            first_client = next(iter(active_clients.values()), {})
+            current_quality = first_client.get("current_quality")
+        
         public_stats = {
             "timestamp": datetime.now().isoformat(),
-            "quality_info": stats.get("quality_info", {}),
+            "quality_info": {
+                "current_quality": current_quality,
+                "quality_levels": stats.get("configuration", {}).get("quality_levels", [30, 50, 70, 85])
+            },
             "performance": {
-                "server_fps": stats.get("performance", {}).get("server_fps"),
-                "frame_count": stats.get("performance", {}).get("frame_count")
+                "server_fps": system_perf.get("average_fps"),
+                "frame_count": system_perf.get("total_frames")
             },
             "client_info": {
-                "active_clients": len(stats.get("clients", {})),
-                "total_clients": stats.get("client_stats", {}).get("total_clients", 0)
+                "active_clients": len(active_clients),
+                "total_clients": client_mgr.get("total_clients_served", 0)
             }
         }
         return public_stats

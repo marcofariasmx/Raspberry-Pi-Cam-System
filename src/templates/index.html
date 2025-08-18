@@ -1180,18 +1180,25 @@
             };
         }
         
-        // Check if stream is actually showing frames and hide banner
+        // Simplified stream ready check - hide banner when optimized frame detector starts working
         function checkStreamReady(img) {
             let checks = 0;
-            const maxChecks = 10; // Max 5 seconds
+            const maxChecks = 20; // Max 10 seconds
             
             const readyInterval = setInterval(() => {
                 checks++;
                 
+                // Method 1: Check if optimized frame detector is detecting frames
+                if (optimizedFrameDetector && optimizedFrameDetector.getTotalFrames() > 0) {
+                    console.log('🎥 Stream frames detected by optimized detector - hiding banner');
+                    hideConnectionBanner();
+                    clearInterval(readyInterval);
+                    return;
+                }
+                
+                // Method 2: Check if image has dimensions and try to sample it
                 try {
-                    // Check if image has actual content and dimensions
                     if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
-                        // Try to draw to canvas to see if it has actual image data
                         const testCanvas = document.createElement('canvas');
                         const testCtx = testCanvas.getContext('2d');
                         testCanvas.width = 1;
@@ -1200,9 +1207,10 @@
                         testCtx.drawImage(img, 0, 0, 1, 1);
                         const pixel = testCtx.getImageData(0, 0, 1, 1).data;
                         
-                        // Check if we have actual pixel data (not all zeros)
-                        if (pixel[0] + pixel[1] + pixel[2] > 0) {
-                            console.log('🎥 Stream is showing actual frames - hiding banner');
+                        // Check if we have actual pixel data (not all zeros or all 255s)
+                        const pixelSum = pixel[0] + pixel[1] + pixel[2];
+                        if (pixelSum > 0 && pixelSum < 765) { // Not completely black or white
+                            console.log('🎥 Stream has real image data - hiding banner');
                             hideConnectionBanner();
                             clearInterval(readyInterval);
                             return;
@@ -1212,9 +1220,9 @@
                     console.warn('Stream ready check error:', error);
                 }
                 
-                // Give up after max checks
+                // Method 3: Give up after max checks and hide anyway
                 if (checks >= maxChecks) {
-                    console.log('🎥 Stream ready check timeout - hiding banner anyway');
+                    console.log('🎥 Stream ready check timeout - hiding banner after 10 seconds');
                     hideConnectionBanner();
                     clearInterval(readyInterval);
                 }
