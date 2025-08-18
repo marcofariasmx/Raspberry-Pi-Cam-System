@@ -5,68 +5,260 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            background-color: #f0f0f0;
+        * {
             margin: 0;
-            padding: 20px;
+            padding: 0;
+            box-sizing: border-box;
         }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            margin-bottom: 20px;
-        }
-        .stream-container {
-            border: 2px solid #ddd;
-            border-radius: 5px;
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #000;
+            color: #fff;
             overflow: hidden;
-            margin: 20px 0;
         }
-        img {
-            width: 100%;
-            height: auto;
-            display: block;
+        
+        .video-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        .info {
-            color: #666;
-            font-size: 14px;
-            margin-top: 10px;
+        
+        #stream {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
         }
-        .status {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 5px;
-            background-color: #e8f5e8;
-            color: #2d5a2d;
-            border: 1px solid #c3e6c3;
+        
+        .metrics-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            font-weight: 500;
+            transition: transform 0.3s ease;
+            z-index: 100;
+        }
+        
+        .metrics-bar.hidden {
+            transform: translateY(100%);
+        }
+        
+        .metric {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .metric-label {
+            color: #888;
+        }
+        
+        .metric-value {
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4CAF50;
+            margin-right: 4px;
+        }
+        
+        .status-indicator.warning {
+            background: #FF9800;
+        }
+        
+        .status-indicator.error {
+            background: #F44336;
+        }
+        
+        .toggle-metrics {
+            position: fixed;
+            bottom: 16px;
+            right: 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease;
+            z-index: 101;
+        }
+        
+        .toggle-metrics:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        @media (max-width: 768px) {
+            .metrics-bar {
+                flex-direction: column;
+                gap: 4px;
+                padding: 8px;
+                font-size: 11px;
+            }
+            
+            .metric {
+                justify-content: space-between;
+                width: 100%;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>📷 Pi Camera Stream</h1>
-        
-        <div class="status">
-            Stream Resolution: {{ config.stream_width }}x{{ config.stream_height }} @ {{ config.stream_fps }}fps<br>
-            JPEG Quality: {{ config.jpeg_quality }}%
+    <div class="video-container">
+        <img id="stream" src="/api/camera/stream" alt="Camera Stream">
+    </div>
+    
+    <div class="metrics-bar" id="metricsBar">
+        <div class="metric">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span class="metric-label">Resolution:</span>
+            <span class="metric-value" id="resolution">{{ config.stream_width }}×{{ config.stream_height }}</span>
         </div>
-        
-        <div class="stream-container">
-            <img src="/api/camera/stream" alt="Camera Stream">
+        <div class="metric">
+            <span class="metric-label">FPS:</span>
+            <span class="metric-value" id="actualFps">--</span>
+            <span class="metric-label"> / </span>
+            <span class="metric-value" id="targetFps">--</span>
+            <span class="metric-label"> (actual/expected)</span>
         </div>
-        
-        <div class="info">
-            Minimal Pi Camera Streaming Application<br>
-            Live MJPEG stream from Raspberry Pi camera
+        <div class="metric">
+            <span class="metric-label">Quality:</span>
+            <span class="metric-value" id="quality">{{ config.jpeg_quality }}%</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Latency:</span>
+            <span class="metric-value" id="latency">--ms</span>
         </div>
     </div>
+    
+    <button class="toggle-metrics" id="toggleMetrics" title="Toggle metrics display">📊</button>
+    
+    <script src="/static/metrics.js"></script>
+    <script>
+        let metricsVisible = true;
+        const metricsBar = document.getElementById('metricsBar');
+        const toggleButton = document.getElementById('toggleMetrics');
+        const streamImg = document.getElementById('stream');
+        
+        // Toggle metrics visibility
+        toggleButton.addEventListener('click', () => {
+            metricsVisible = !metricsVisible;
+            metricsBar.classList.toggle('hidden', !metricsVisible);
+            toggleButton.textContent = metricsVisible ? '📊' : '👁️';
+        });
+        
+        // More accurate frame detection for MJPEG streams
+        let frameCount = 0;
+        let lastImageSrc = '';
+        
+        function detectNewFrame() {
+            // MJPEG streams update the src with timestamp parameters
+            const currentSrc = streamImg.src;
+            
+            if (streamImg.complete && streamImg.naturalHeight > 0) {
+                // Check if image has actually updated (for MJPEG this indicates new frame)
+                if (currentSrc !== lastImageSrc || frameCount === 0) {
+                    streamMetrics.onFrameReceived();
+                    lastImageSrc = currentSrc;
+                    frameCount++;
+                }
+            }
+        }
+        
+        // Use multiple detection methods for accuracy
+        streamImg.addEventListener('load', detectNewFrame);
+        
+        // Fallback polling at 60fps for missed frames
+        setInterval(detectNewFrame, 16); // ~60fps polling
+        
+        // Start monitoring
+        streamMetrics.start();
+        
+        // Update metrics display
+        async function updateMetricsDisplay() {
+            try {
+                const metrics = await getAllMetrics();
+                
+                // Update actual FPS
+                const actualFpsElement = document.getElementById('actualFps');
+                const targetFpsElement = document.getElementById('targetFps');
+                
+                if (metrics.actual_fps > 0) {
+                    actualFpsElement.textContent = metrics.actual_fps.toFixed(1);
+                    
+                    // Color-code based on actual vs expected FPS
+                    const targetFps = metrics.backend?.target_fps;
+                    if (targetFps && metrics.actual_fps > 0) {
+                        const fpsRatio = metrics.actual_fps / targetFps;
+                        if (fpsRatio >= 0.9) { // Within 10% of target
+                            actualFpsElement.style.color = '#4CAF50'; // Green
+                        } else if (fpsRatio >= 0.7) { // Within 30% of target  
+                            actualFpsElement.style.color = '#FF9800'; // Orange
+                        } else { // Below 70% of target
+                            actualFpsElement.style.color = '#F44336'; // Red
+                        }
+                    } else {
+                        actualFpsElement.style.color = '#fff'; // Default white
+                    }
+                } else {
+                    actualFpsElement.textContent = '--';
+                    actualFpsElement.style.color = '#fff';
+                }
+                
+                // Update latency
+                document.getElementById('latency').textContent = 
+                    metrics.latency_ms ? `${metrics.latency_ms}ms` : '--ms';
+                
+                // Update status indicator
+                const indicator = document.getElementById('statusIndicator');
+                if (metrics.backend?.camera_available && metrics.actual_fps > 0) {
+                    indicator.className = 'status-indicator';
+                } else if (metrics.backend?.camera_available) {
+                    indicator.className = 'status-indicator warning';
+                } else {
+                    indicator.className = 'status-indicator error';
+                }
+                
+                // Update backend metrics if available
+                if (metrics.backend) {
+                    if (metrics.backend.resolution) {
+                        document.getElementById('resolution').textContent = 
+                            `${metrics.backend.resolution.width}×${metrics.backend.resolution.height}`;
+                    }
+                    document.getElementById('targetFps').textContent = metrics.backend.target_fps || '--';
+                    document.getElementById('quality').textContent = `${metrics.backend.jpeg_quality || '--'}%`;
+                }
+                
+            } catch (error) {
+                console.warn('Failed to update metrics display:', error);
+            }
+        }
+        
+        // Update metrics every second
+        setInterval(updateMetricsDisplay, 1000);
+        
+        // Initial update
+        setTimeout(updateMetricsDisplay, 500);
+    </script>
 </body>
 </html>

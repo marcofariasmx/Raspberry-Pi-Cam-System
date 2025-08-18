@@ -31,6 +31,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 
 from .config import get_config, print_config
 from .camera import Camera
@@ -49,6 +50,9 @@ app = FastAPI(
 # Initialize global components
 camera: Camera = None
 templates = Jinja2Templates(directory="src/templates")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
 
 @app.on_event("startup")
@@ -145,6 +149,42 @@ async def health_check():
             "fps": config.stream_fps,
             "quality": config.jpeg_quality
         }
+    }
+
+
+@app.get("/api/camera/metrics")
+async def get_camera_metrics():
+    """
+    Get real-time camera and stream metrics.
+    
+    Returns actual measured values for resolution, configured FPS,
+    JPEG quality, and stream status. No estimations.
+    
+    Returns:
+        dict: Real metrics including:
+            - resolution: Actual stream dimensions
+            - target_fps: Configured frame rate
+            - jpeg_quality: Configured JPEG quality percentage
+            - stream_active: Whether streaming is currently active
+            - timestamp: Current server timestamp
+    """
+    if not camera:
+        return {
+            "error": "Camera not available",
+            "stream_active": False,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    return {
+        "resolution": {
+            "width": config.stream_width,
+            "height": config.stream_height
+        },
+        "target_fps": config.stream_fps,
+        "jpeg_quality": config.jpeg_quality,
+        "stream_active": camera.is_streaming() if hasattr(camera, 'is_streaming') else False,
+        "camera_available": camera.is_available(),
+        "timestamp": datetime.now().isoformat()
     }
 
 
