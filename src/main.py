@@ -692,17 +692,37 @@ async def get_public_streaming_stats():
     try:
         stats = camera_manager.get_streaming_stats()
         
+        # Debug: Show full structure
+        print("📊 DEBUG - Full streaming stats structure:")
+        import json
+        print(json.dumps(stats, indent=2, default=str))
+        
         # Map the actual streaming stats structure to expected format
         system_perf = stats.get("system_performance", {})
         client_mgr = stats.get("client_manager", {})
         active_clients = stats.get("active_clients", {})
         
-        # Extract current quality from client manager (if any clients exist)
+        # Extract REAL current quality from active clients
         current_quality = None
+        
         if active_clients:
-            # Get quality from first active client as representative
-            first_client = next(iter(active_clients.values()), {})
-            current_quality = first_client.get("current_quality")
+            # Get quality from ALL clients and find the lowest (most degraded)
+            client_qualities = []
+            for client_id, client_data in active_clients.items():
+                client_quality = client_data.get("current_quality")
+                if client_quality:
+                    client_qualities.append(client_quality)
+                    print(f"📊 Client {client_id}: quality {client_quality}%")
+            
+            if client_qualities:
+                # Use the lowest quality as it represents what users are actually seeing
+                current_quality = min(client_qualities)
+                avg_quality = sum(client_qualities) / len(client_qualities)
+                print(f"📊 Quality range: {min(client_qualities)}%-{max(client_qualities)}%, using lowest: {current_quality}%")
+            else:
+                print(f"📊 No quality data found in any active clients")
+        else:
+            print(f"📊 No active clients for quality extraction")
         
         public_stats = {
             "timestamp": datetime.now().isoformat(),
@@ -723,6 +743,38 @@ async def get_public_streaming_stats():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get streaming stats: {str(e)}")
+
+
+@app.get("/api/camera/stream/debug/clients")
+async def debug_active_clients():
+    """Debug endpoint to see raw client data (no auth required)"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        stats = camera_manager.get_streaming_stats()
+        active_clients = stats.get("active_clients", {})
+        
+        debug_info = {
+            "timestamp": datetime.now().isoformat(),
+            "total_clients": len(active_clients),
+            "clients": {}
+        }
+        
+        for client_id, client_data in active_clients.items():
+            debug_info["clients"][client_id] = {
+                "current_quality": client_data.get("current_quality"),
+                "network_performance": client_data.get("network_performance"),
+                "delivery_stats": client_data.get("delivery_stats"),
+                "connection_time": client_data.get("connection_time"),
+                "last_activity": client_data.get("last_activity"),
+                "all_fields": list(client_data.keys())  # Show what fields exist
+            }
+        
+        return debug_info
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get client debug info: {str(e)}")
 
 
 @app.get("/api/photos")

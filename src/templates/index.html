@@ -254,7 +254,9 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
-        .hidden { display: none; }
+        .hidden { 
+            display: none !important; 
+        }
 
         .loading {
             display: inline-block;
@@ -804,6 +806,9 @@
         let frontendMetrics = null;
         let monitoredImage = null;
         let optimizedFrameDetector = null; // Direct access to optimized FPS
+        
+        // Persistent client ID - reuse across reconnections
+        let persistentClientId = null;
 
         // API helper function for session-based calls
         async function sessionApiCall(endpoint, options = {}) {
@@ -1035,9 +1040,14 @@
             const placeholder = document.getElementById('streamPlaceholder');
             
             return new Promise((resolve) => {
-                // Generate unique client ID
-                const clientId = 'client_' + Math.random().toString(36).substr(2, 9);
-                const streamUrl = `/api/camera/stream?client_id=${clientId}&t=${new Date().getTime()}`;
+                // Generate or reuse persistent client ID
+                if (!persistentClientId) {
+                    persistentClientId = 'client_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+                    console.log('🆔 Created persistent client ID:', persistentClientId);
+                } else {
+                    console.log('🆔 Reusing client ID:', persistentClientId);
+                }
+                const streamUrl = `/api/camera/stream?client_id=${persistentClientId}&t=${new Date().getTime()}`;
                 
                 // Setup image handlers
                 img.onload = () => {
@@ -1059,6 +1069,12 @@
                         setTimeout(() => {
                             checkStreamReady(img);
                         }, 500);
+                        
+                        // Fallback: Always hide banner after 15 seconds regardless
+                        setTimeout(() => {
+                            console.log('🎥 🆘 Fallback banner hide after 15 seconds');
+                            hideConnectionBanner();
+                        }, 15000);
                     } else {
                         // Fallback if no metrics system
                         setTimeout(() => {
@@ -1180,24 +1196,37 @@
             };
         }
         
-        // Simplified stream ready check - hide banner when optimized frame detector starts working
+        // Debug-enabled stream ready check
         function checkStreamReady(img) {
             let checks = 0;
             const maxChecks = 20; // Max 10 seconds
             
+            console.log('🎥 Starting stream ready check...');
+            
             const readyInterval = setInterval(() => {
                 checks++;
+                console.log(`🎥 Stream check ${checks}/${maxChecks}`);
                 
-                // Method 1: Check if optimized frame detector is detecting frames
-                if (optimizedFrameDetector && optimizedFrameDetector.getTotalFrames() > 0) {
-                    console.log('🎥 Stream frames detected by optimized detector - hiding banner');
-                    hideConnectionBanner();
-                    clearInterval(readyInterval);
-                    return;
+                // Method 1: Check optimized frame detector
+                if (optimizedFrameDetector) {
+                    const totalFrames = optimizedFrameDetector.getTotalFrames();
+                    const currentFPS = optimizedFrameDetector.getCurrentFPS();
+                    console.log(`📊 Frame detector: ${totalFrames} frames, ${currentFPS} FPS`);
+                    
+                    if (totalFrames > 0) {
+                        console.log('🎥 ✅ Frames detected by optimized detector - hiding banner');
+                        hideConnectionBanner();
+                        clearInterval(readyInterval);
+                        return;
+                    }
+                } else {
+                    console.log('📊 No optimized frame detector available');
                 }
                 
-                // Method 2: Check if image has dimensions and try to sample it
+                // Method 2: Check image pixel data
                 try {
+                    console.log(`🖼️ Image state: complete=${img.complete}, naturalWidth=${img.naturalWidth}, naturalHeight=${img.naturalHeight}`);
+                    
                     if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
                         const testCanvas = document.createElement('canvas');
                         const testCtx = testCanvas.getContext('2d');
@@ -1206,23 +1235,24 @@
                         
                         testCtx.drawImage(img, 0, 0, 1, 1);
                         const pixel = testCtx.getImageData(0, 0, 1, 1).data;
-                        
-                        // Check if we have actual pixel data (not all zeros or all 255s)
                         const pixelSum = pixel[0] + pixel[1] + pixel[2];
-                        if (pixelSum > 0 && pixelSum < 765) { // Not completely black or white
-                            console.log('🎥 Stream has real image data - hiding banner');
+                        
+                        console.log(`🎨 Pixel data: R=${pixel[0]}, G=${pixel[1]}, B=${pixel[2]}, Sum=${pixelSum}`);
+                        
+                        if (pixelSum > 0 && pixelSum < 765) {
+                            console.log('🎥 ✅ Real image data detected - hiding banner');
                             hideConnectionBanner();
                             clearInterval(readyInterval);
                             return;
                         }
                     }
                 } catch (error) {
-                    console.warn('Stream ready check error:', error);
+                    console.warn('🎥 Stream ready check error:', error);
                 }
                 
-                // Method 3: Give up after max checks and hide anyway
+                // Method 3: Timeout fallback
                 if (checks >= maxChecks) {
-                    console.log('🎥 Stream ready check timeout - hiding banner after 10 seconds');
+                    console.log('🎥 ⏰ Timeout reached - hiding banner anyway');
                     hideConnectionBanner();
                     clearInterval(readyInterval);
                 }
@@ -1460,7 +1490,29 @@
         }
         
         function hideConnectionBanner() {
-            document.getElementById('connectionBanner').classList.add('hidden');
+            const banner = document.getElementById('connectionBanner');
+            const placeholder = document.getElementById('streamPlaceholder');
+            const img = document.getElementById('cameraStream');
+            
+            console.log('🎥 hideConnectionBanner called');
+            console.log('🎥 Banner element:', banner);
+            console.log('🎥 Placeholder element:', placeholder);
+            
+            // Hide both banner and placeholder
+            if (banner) {
+                banner.classList.add('hidden');
+                console.log('🎥 Banner hidden');
+            }
+            
+            if (placeholder) {
+                placeholder.style.display = 'none';
+                console.log('🎥 Placeholder hidden');
+            }
+            
+            if (img) {
+                img.style.display = 'block';
+                console.log('🎥 Stream image shown');
+            }
         }
         
         // Metrics update system
@@ -1534,15 +1586,21 @@
                 
                 if (response.ok) {
                     const stats = await response.json();
-                    console.log('📊 Backend stats:', stats); // Debug logging
+                    console.log('📊 Full backend stats (expanded):', stats);
+                    console.log('📊 Quality info details:', stats.quality_info);
                     
                     // Update quality from backend (actual JPEG quality setting)
-                    if (stats.quality_info && stats.quality_info.current_quality) {
+                    if (stats.quality_info && stats.quality_info.current_quality !== null && stats.quality_info.current_quality !== undefined) {
                         const quality = stats.quality_info.current_quality;
                         document.getElementById('qualityValue').textContent = quality + '%';
-                        console.log('📊 Quality updated:', quality + '%');
+                        console.log('📊 Quality updated to:', quality + '%');
                     } else {
-                        console.warn('📊 No quality info in stats:', stats.quality_info);
+                        console.warn('📊 No valid quality info:', {
+                            hasQualityInfo: !!stats.quality_info,
+                            currentQuality: stats.quality_info?.current_quality,
+                            fullQualityInfo: stats.quality_info
+                        });
+                        document.getElementById('qualityValue').textContent = '--%';
                     }
                     
                     // Could also show server FPS as additional info

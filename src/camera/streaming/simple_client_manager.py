@@ -261,8 +261,8 @@ class SimpleClientManager:
                                 self.clients[client_id].record_skip()
                         time.sleep(0.01)
                     
-                    # Periodic cleanup
-                    if current_time - self.last_cleanup_time > 60.0:
+                    # More frequent cleanup - every 30 seconds instead of 60
+                    if current_time - self.last_cleanup_time > 30.0:
                         self._cleanup_inactive_clients()
                         self.last_cleanup_time = current_time
                 
@@ -297,9 +297,9 @@ class SimpleClientManager:
             # Keep client state for a while for statistics
     
     def _cleanup_inactive_clients(self):
-        """Remove inactive clients from memory"""
+        """Remove inactive clients from memory - more aggressive cleanup"""
         current_time = time.time()
-        inactive_threshold = 300.0  # 5 minutes
+        inactive_threshold = 60.0  # Reduced from 5 minutes to 1 minute
         
         with self._lock:
             inactive_clients = [
@@ -308,11 +308,22 @@ class SimpleClientManager:
                 and client_id not in self.active_streams
             ]
             
-            for client_id in inactive_clients:
-                del self.clients[client_id]
+            # Also clean up clients that have been disconnected but left in clients dict
+            ghost_clients = [
+                client_id for client_id in self.clients.keys()
+                if client_id not in self.active_streams
+                and (current_time - self.clients[client_id].last_activity) > 30.0  # 30 seconds for ghosts
+            ]
             
-            if inactive_clients:
-                print(f"🧹 Cleaned up {len(inactive_clients)} inactive clients")
+            all_cleanup_clients = set(inactive_clients + ghost_clients)
+            
+            for client_id in all_cleanup_clients:
+                if client_id in self.clients:
+                    del self.clients[client_id]
+                    print(f"🧹 Cleaned up client: {client_id}")
+            
+            if all_cleanup_clients:
+                print(f"🧹 Total cleaned up: {len(all_cleanup_clients)} clients (active: {len(self.active_streams)}, total: {len(self.clients)})")
     
     def disconnect_client(self, client_id: str) -> bool:
         """
