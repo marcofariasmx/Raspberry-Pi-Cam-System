@@ -167,29 +167,47 @@
             toggleButton.textContent = metricsVisible ? '📊' : '👁️';
         });
         
-        // More accurate frame detection for MJPEG streams
+        // Accurate frame detection for MJPEG streams
+        let lastImageData = null;
         let frameCount = 0;
-        let lastImageSrc = '';
         
         function detectNewFrame() {
-            // MJPEG streams update the src with timestamp parameters
-            const currentSrc = streamImg.src;
-            
             if (streamImg.complete && streamImg.naturalHeight > 0) {
-                // Check if image has actually updated (for MJPEG this indicates new frame)
-                if (currentSrc !== lastImageSrc || frameCount === 0) {
+                // For MJPEG streams, we detect new frames by monitoring the load event
+                // and using a canvas to detect actual image changes
+                try {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 32; // Small sample for performance
+                    canvas.height = 32;
+                    
+                    ctx.drawImage(streamImg, 0, 0, 32, 32);
+                    const imageData = ctx.getImageData(0, 0, 32, 32);
+                    const currentData = Array.from(imageData.data);
+                    
+                    // Compare with last frame data
+                    if (!lastImageData || JSON.stringify(currentData) !== JSON.stringify(lastImageData)) {
+                        streamMetrics.onFrameReceived();
+                        lastImageData = currentData;
+                        frameCount++;
+                    }
+                } catch (error) {
+                    // Fallback: just count load events
                     streamMetrics.onFrameReceived();
-                    lastImageSrc = currentSrc;
                     frameCount++;
                 }
             }
         }
         
-        // Use multiple detection methods for accuracy
+        // Primary detection: MJPEG load events
         streamImg.addEventListener('load', detectNewFrame);
         
-        // Fallback polling at 60fps for missed frames
-        setInterval(detectNewFrame, 16); // ~60fps polling
+        // Backup detection every 100ms
+        setInterval(() => {
+            if (streamImg.complete && streamImg.naturalHeight > 0) {
+                detectNewFrame();
+            }
+        }, 100);
         
         // Start monitoring
         streamMetrics.start();

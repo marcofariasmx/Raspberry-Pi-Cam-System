@@ -123,6 +123,7 @@ async def home(request: Request):
 
 
 @app.get("/health")
+@app.head("/health")
 async def health_check():
     """
     System health and status endpoint.
