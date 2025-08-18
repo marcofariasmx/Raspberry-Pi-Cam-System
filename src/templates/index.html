@@ -1047,15 +1047,15 @@
                     
                     hideConnectionBanner();
                     
-                    // Initialize monitoring
+                    // Initialize monitoring (simplified to avoid performance issues)
                     if (frontendMetrics) {
                         frontendMetrics.setVideoElement(img);
-                        monitoredImage = new MonitoredImageElement(img, frontendMetrics);
-                        monitoredImage.startMonitoring();
+                        // Skip MJPEG parser for now to avoid performance issues
+                        console.log('📊 Metrics system initialized');
                     }
                     
-                    // Setup connection monitoring
-                    setupConnectionMonitoring(img);
+                    // Setup simplified connection monitoring
+                    setupSimpleConnectionMonitoring();
                     
                     console.log('🎥 Stream started successfully');
                     resolve(true);
@@ -1081,26 +1081,26 @@
             });
         }
         
-        // Setup connection monitoring
-        function setupConnectionMonitoring(img) {
-            // Monitor for broken/stale images
+        // Setup simplified connection monitoring
+        function setupSimpleConnectionMonitoring() {
+            // Very basic monitoring - just check if we lose connection
+            // No complex frame parsing to avoid performance issues
             const monitorInterval = setInterval(() => {
                 if (!isStreaming) {
                     clearInterval(monitorInterval);
                     return;
                 }
                 
-                // Check if image is still loading new frames
-                // This is a simplified check - real implementation would use MJPEG parser
-                const now = Date.now();
-                const lastActivity = frontendMetrics ? frontendMetrics.healthMonitor.lastFrameTime : null;
-                
-                if (lastActivity && (now - lastActivity) > 10000) {
-                    console.warn('Stream appears stale, triggering reconnect');
-                    triggerReconnect();
-                    clearInterval(monitorInterval);
+                // Simple check - if metrics system is available and reports disconnection
+                if (frontendMetrics) {
+                    const health = frontendMetrics.healthMonitor.getMetrics();
+                    if (!health.is_connected && health.total_disconnections > 0) {
+                        console.warn('Stream disconnected, triggering reconnect');
+                        triggerReconnect();
+                        clearInterval(monitorInterval);
+                    }
                 }
-            }, 2000);
+            }, 5000); // Check every 5 seconds instead of 2
         }
         
         // Trigger reconnection
@@ -1294,61 +1294,75 @@
         }
         
         function updateMetricsDisplay() {
-            if (!frontendMetrics) return;
-            
             try {
-                const metrics = frontendMetrics.getDisplayMetrics();
-                
-                // Update FPS
-                document.getElementById('fpsValue').textContent = 
-                    metrics.fps ? metrics.fps.toFixed(1) : '--';
-                
-                // Update Quality (objective!)
-                document.getElementById('qualityValue').textContent = 
-                    metrics.quality_estimate ? metrics.quality_estimate + '%' : '--%';
-                
-                // Update Resolution
-                const resolution = metrics.resolution;
-                document.getElementById('resolutionValue').textContent = 
-                    resolution ? `${resolution.source_width}×${resolution.source_height}` : '--';
-                
-                // Update Latency
-                document.getElementById('latencyValue').textContent = 
-                    metrics.latency_ms ? metrics.latency_ms + 'ms' : '--ms';
-                
-                // Update Signal Bars
-                updateSignalBars(metrics);
-                
-                // Update Time
+                // Simple time update always works
                 document.getElementById('timeValue').textContent = 
                     new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                 
-                // Update Menu Status
-                updateMenuStatus(metrics);
+                // Only update other metrics if frontend metrics is working properly
+                if (frontendMetrics) {
+                    try {
+                        const metrics = frontendMetrics.getDisplayMetrics();
+                        
+                        // Update with safe fallbacks
+                        document.getElementById('fpsValue').textContent = 
+                            (metrics.fps && metrics.fps > 0) ? metrics.fps.toFixed(1) : '--';
+                        
+                        document.getElementById('qualityValue').textContent = 
+                            metrics.quality_estimate ? metrics.quality_estimate + '%' : '--%';
+                        
+                        const resolution = metrics.resolution;
+                        document.getElementById('resolutionValue').textContent = 
+                            resolution ? `${resolution.source_width}×${resolution.source_height}` : '--';
+                        
+                        document.getElementById('latencyValue').textContent = 
+                            metrics.latency_ms ? metrics.latency_ms + 'ms' : '--ms';
+                        
+                        // Simple signal indication
+                        updateSignalBars(metrics);
+                        
+                    } catch (metricsError) {
+                        // If metrics fail, just show basic info
+                        console.warn('Metrics error, showing basic info:', metricsError);
+                        document.getElementById('fpsValue').textContent = '--';
+                        document.getElementById('qualityValue').textContent = '--%';
+                        document.getElementById('resolutionValue').textContent = '--';
+                        document.getElementById('latencyValue').textContent = '--ms';
+                    }
+                }
                 
             } catch (error) {
-                console.error('Error updating metrics:', error);
+                console.error('Critical error updating display:', error);
+                // Don't let display update errors crash the app
             }
         }
         
         function updateSignalBars(metrics) {
-            const signalBars = document.getElementById('signalBars');
-            const latency = metrics.latency_ms;
-            const stability = metrics.connection_stability;
-            
-            // Determine signal strength based on latency and stability
-            let signalClass = 'poor';
-            if (metrics.is_connected && latency && stability) {
-                if (latency < 50 && stability > 80) {
-                    signalClass = 'excellent';
-                } else if (latency < 100 && stability > 60) {
-                    signalClass = 'good';
-                } else if (latency < 200 && stability > 40) {
+            try {
+                const signalBars = document.getElementById('signalBars');
+                if (!signalBars) return;
+                
+                const latency = metrics.latency_ms;
+                
+                // Simple signal strength based on latency only
+                let signalClass = 'poor';
+                if (latency && latency > 0) {
+                    if (latency < 50) {
+                        signalClass = 'excellent';
+                    } else if (latency < 100) {
+                        signalClass = 'good';
+                    } else if (latency < 200) {
+                        signalClass = 'fair';
+                    }
+                } else if (isStreaming) {
+                    // If streaming but no latency data, assume fair
                     signalClass = 'fair';
                 }
+                
+                signalBars.className = `signal-bars ${signalClass}`;
+            } catch (error) {
+                console.warn('Error updating signal bars:', error);
             }
-            
-            signalBars.className = `signal-bars ${signalClass}`;
         }
         
         function updateMenuStatus(metrics) {
