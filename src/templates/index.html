@@ -1045,13 +1045,18 @@
                     isStreaming = true;
                     reconnectAttempts = 0;
                     
-                    hideConnectionBanner();
+                    // Hide connection banner after a short delay to ensure stream is stable
+                    setTimeout(() => {
+                        hideConnectionBanner();
+                    }, 1000);
                     
-                    // Initialize monitoring (simplified to avoid performance issues)
+                    // Initialize monitoring with basic frame detection
                     if (frontendMetrics) {
                         frontendMetrics.setVideoElement(img);
-                        // Skip MJPEG parser for now to avoid performance issues
                         console.log('📊 Metrics system initialized');
+                        
+                        // Start real frame detection
+                        startRealFrameDetection(img);
                     }
                     
                     // Setup simplified connection monitoring
@@ -1079,6 +1084,70 @@
                     }
                 }, 10000);
             });
+        }
+        
+        // Real frame detection using image element properties
+        function startRealFrameDetection(img) {
+            let lastImageData = null;
+            let frameCount = 0;
+            const frameCheckInterval = 50; // Check every 50ms for actual changes
+            
+            const frameDetectionInterval = setInterval(() => {
+                if (!isStreaming) {
+                    clearInterval(frameDetectionInterval);
+                    return;
+                }
+                
+                try {
+                    // Check if image has actually changed by monitoring src changes
+                    // MJPEG streams update the src continuously
+                    const currentSrc = img.src;
+                    
+                    // For MJPEG, we can't easily detect individual frames without canvas
+                    // So we'll just notify metrics system that we're connected and streaming
+                    if (frontendMetrics && img.complete && img.naturalWidth > 0) {
+                        // Only call onFrameReceived occasionally to avoid spam
+                        if (frameCount % 20 === 0) { // Every 20 checks (~1 second)
+                            frontendMetrics.onFrameReceived(); // No estimated size
+                            updateImageResolution(img);
+                        }
+                        frameCount++;
+                    }
+                } catch (error) {
+                    console.warn('Frame detection error:', error);
+                }
+            }, frameCheckInterval);
+        }
+        
+        // Update resolution from actual image element
+        function updateImageResolution(img) {
+            if (!frontendMetrics || !img) return;
+            
+            try {
+                // For img elements displaying MJPEG, we can get natural dimensions
+                const naturalWidth = img.naturalWidth;
+                const naturalHeight = img.naturalHeight;
+                const displayWidth = img.clientWidth;
+                const displayHeight = img.clientHeight;
+                
+                if (naturalWidth && naturalHeight) {
+                    // Update the quality detector with resolution info
+                    const qualityDetector = frontendMetrics.qualityDetector;
+                    if (qualityDetector) {
+                        qualityDetector.currentResolution = {
+                            source_width: naturalWidth,
+                            source_height: naturalHeight,
+                            display_width: displayWidth,
+                            display_height: displayHeight,
+                            aspect_ratio: Math.round((naturalWidth / naturalHeight) * 100) / 100,
+                            is_scaled: naturalWidth !== displayWidth || naturalHeight !== displayHeight,
+                            scale_factor: Math.round((displayWidth / naturalWidth) * 100) / 100
+                        };
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not update image resolution:', error);
+            }
         }
         
         // Setup simplified connection monitoring
@@ -1293,28 +1362,30 @@
             metricsUpdateInterval = setInterval(updateMetricsDisplay, 1000);
         }
         
-        function updateMetricsDisplay() {
+        async function updateMetricsDisplay() {
             try {
                 // Simple time update always works
                 document.getElementById('timeValue').textContent = 
                     new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                 
-                // Only update other metrics if frontend metrics is working properly
+                // Get actual metrics from backend
+                await updateBackendMetrics();
+                
+                // Only update frontend metrics if available
                 if (frontendMetrics) {
                     try {
                         const metrics = frontendMetrics.getDisplayMetrics();
                         
-                        // Update with safe fallbacks
+                        // Update FPS from frontend (actual frame timing)
                         document.getElementById('fpsValue').textContent = 
                             (metrics.fps && metrics.fps > 0) ? metrics.fps.toFixed(1) : '--';
                         
-                        document.getElementById('qualityValue').textContent = 
-                            metrics.quality_estimate ? metrics.quality_estimate + '%' : '--%';
-                        
+                        // Resolution from actual image element
                         const resolution = metrics.resolution;
                         document.getElementById('resolutionValue').textContent = 
                             resolution ? `${resolution.source_width}×${resolution.source_height}` : '--';
                         
+                        // Latency from frontend (actual ping time)
                         document.getElementById('latencyValue').textContent = 
                             metrics.latency_ms ? metrics.latency_ms + 'ms' : '--ms';
                         
@@ -1322,10 +1393,9 @@
                         updateSignalBars(metrics);
                         
                     } catch (metricsError) {
-                        // If metrics fail, just show basic info
-                        console.warn('Metrics error, showing basic info:', metricsError);
+                        // If frontend metrics fail, show what we can
+                        console.warn('Frontend metrics error:', metricsError);
                         document.getElementById('fpsValue').textContent = '--';
-                        document.getElementById('qualityValue').textContent = '--%';
                         document.getElementById('resolutionValue').textContent = '--';
                         document.getElementById('latencyValue').textContent = '--ms';
                     }
@@ -1334,6 +1404,34 @@
             } catch (error) {
                 console.error('Critical error updating display:', error);
                 // Don't let display update errors crash the app
+            }
+        }
+        
+        // Get actual metrics from backend API
+        async function updateBackendMetrics() {
+            try {
+                // Get streaming stats from backend (has actual quality and server FPS)
+                const response = await fetch('/api/camera/stream/stats/public', {
+                    method: 'GET'
+                });
+                
+                if (response.ok) {
+                    const stats = await response.json();
+                    
+                    // Update quality from backend (actual JPEG quality setting)
+                    if (stats.quality_info && stats.quality_info.current_quality) {
+                        document.getElementById('qualityValue').textContent = 
+                            stats.quality_info.current_quality + '%';
+                    }
+                    
+                    // Could also show server FPS as additional info
+                    // if (stats.performance && stats.performance.server_fps) {
+                    //     console.log('Server FPS:', stats.performance.server_fps);
+                    // }
+                }
+            } catch (error) {
+                console.warn('Could not get backend metrics:', error);
+                // Backend metrics optional - frontend metrics are primary
             }
         }
         

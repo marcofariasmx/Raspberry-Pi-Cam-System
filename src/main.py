@@ -683,6 +683,34 @@ async def get_streaming_stats(api_key: str = Depends(verify_api_key)):
         raise HTTPException(status_code=500, detail=f"Failed to get streaming stats: {str(e)}")
 
 
+@app.get("/api/camera/stream/stats/public")
+async def get_public_streaming_stats():
+    """Get basic streaming performance statistics (no auth required)"""
+    if not camera_manager:
+        raise HTTPException(status_code=500, detail="Camera manager not available")
+    
+    try:
+        stats = camera_manager.get_streaming_stats()
+        
+        # Return only safe public metrics
+        public_stats = {
+            "timestamp": datetime.now().isoformat(),
+            "quality_info": stats.get("quality_info", {}),
+            "performance": {
+                "server_fps": stats.get("performance", {}).get("server_fps"),
+                "frame_count": stats.get("performance", {}).get("frame_count")
+            },
+            "client_info": {
+                "active_clients": len(stats.get("clients", {})),
+                "total_clients": stats.get("client_stats", {}).get("total_clients", 0)
+            }
+        }
+        return public_stats
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get streaming stats: {str(e)}")
+
+
 @app.get("/api/photos")
 async def list_photos(api_key: str = Depends(verify_api_key)):
     """List all captured photos with metadata"""
