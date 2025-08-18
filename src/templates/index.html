@@ -594,59 +594,9 @@
             height: 16px;
         }
 
-        .logout-btn-menu {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
+        /* Logout button removed - direct access */
 
-        .logout-btn-menu:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
-
-        /* Photos Modal */
-        .photos-modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(0, 0, 0, 0.9);
-            z-index: 30;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .modal-content {
-            background: white;
-            border-radius: 15px;
-            max-width: 90vw;
-            max-height: 90vh;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .modal-header {
-            padding: 20px;
-            border-bottom: 1px solid #eee;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .modal-header h3 {
-            margin: 0;
-            color: #333;
-        }
+        /* Photos modal removed - stream only */
 
         /* Mobile Responsive */
         @media (max-width: 768px) {
@@ -709,26 +659,8 @@
     </style>
 </head>
 <body>
-    <!-- Login Screen -->
-    <div id="loginScreen" class="login-container">
-        <h1>🔒 Camera Access</h1>
-        <p>Enter your password to access the Raspberry Pi camera system</p>
-        
-        <div class="form-group">
-            <label for="password">Password:</label>
-            <input type="password" id="password" placeholder="Enter your password" />
-        </div>
-        
-        <button class="btn btn-primary" onclick="login()" style="width: 100%;">
-            <span id="loginSpinner" class="loading hidden"></span>
-            <span id="loginText">🔑 Login</span>
-        </button>
-        
-        <div id="loginStatus" class="status" style="display: none;"></div>
-    </div>
-
-    <!-- Main Application -->
-    <div id="mainApp" class="container hidden">
+    <!-- Direct Stream Access (No Login Required) -->
+    <div id="mainApp" class="container">
         <!-- Stream-Focused Layout -->
         <div class="stream-focused-layout">
             <!-- Video Stream (Main Focus) -->
@@ -782,9 +714,6 @@
                 
                 <!-- Touch/Click Controls (Auto-hide) -->
                 <div id="videoControls" class="video-controls">
-                    <button class="control-btn capture-btn" onclick="capturePhoto()" title="Capture Photo (Space)">
-                        📸
-                    </button>
                     <button class="control-btn menu-btn" onclick="toggleMenu()" title="Menu">
                         ⚙️
                     </button>
@@ -823,16 +752,10 @@
                     
                     <!-- Quick Actions -->
                     <div class="menu-section">
-                        <h4>Quick Actions</h4>
+                        <h4>Stream Control</h4>
                         <div class="action-buttons">
-                            <button class="action-btn" onclick="capturePhoto()">
-                                📸 Capture Photo
-                            </button>
                             <button class="action-btn" onclick="refreshStream()">
                                 🔄 Refresh Stream
-                            </button>
-                            <button class="action-btn" onclick="loadPhotos(); showPhotos()">
-                                🖼️ View Photos
                             </button>
                         </div>
                     </div>
@@ -856,27 +779,11 @@
                         </div>
                     </div>
                     
-                    <!-- Logout -->
-                    <div class="menu-section">
-                        <button class="logout-btn-menu" onclick="logout()">
-                            🚪 Logout
-                        </button>
-                    </div>
+                    <!-- No logout needed - direct access -->
                 </div>
             </div>
             
-            <!-- Photos Modal -->
-            <div id="photosModal" class="photos-modal hidden">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h3>📸 Captured Photos</h3>
-                        <button class="close-btn" onclick="hidePhotos()">✕</button>
-                    </div>
-                    <div id="photosGrid" class="photos-grid">
-                        <p>Loading photos...</p>
-                    </div>
-                </div>
-            </div>
+            <!-- No photos modal - stream only -->
         </div>
     </div>
 
@@ -887,9 +794,6 @@
     <script>
         // Global State
         let isStreaming = false;
-        let isAuthenticated = false;
-        // statusUpdateInterval removed - obsolete
-        let streamingToken = null;
         let metricsUpdateInterval = null;
         let autoHideTimer = null;
         let reconnectAttempts = 0;
@@ -1126,12 +1030,8 @@
             }
         }
 
-        // Enhanced stream with automatic reconnection
+        // Enhanced stream with automatic reconnection (no auth required)
         async function startStreamWithReconnect() {
-            if (!streamingToken) {
-                console.error('No streaming token available');
-                return false;
-            }
             
             const img = document.getElementById('cameraStream');
             const placeholder = document.getElementById('streamPlaceholder');
@@ -1139,7 +1039,7 @@
             return new Promise((resolve) => {
                 // Generate unique client ID
                 const clientId = 'client_' + Math.random().toString(36).substr(2, 9);
-                const streamUrl = `/api/camera/stream?token=${streamingToken}&client_id=${clientId}&t=${new Date().getTime()}`;
+                const streamUrl = `/api/camera/stream?client_id=${clientId}&t=${new Date().getTime()}`;
                 
                 // Setup image handlers
                 img.onload = () => {
@@ -1277,38 +1177,7 @@
             }
         }
 
-        // Load and display photos
-        async function loadPhotos() {
-            try {
-                const response = await sessionApiCall('/api/session/photos');
-                if (!response) return; // Session expired
-                
-                const data = await response.json();
-                
-                const grid = document.getElementById('photosGrid');
-                
-                if (data.photos && data.photos.length > 0) {
-                    grid.innerHTML = data.photos.map(photo => `
-                        <div class="photo-card">
-                            <img src="${photo.url}" alt="${photo.filename}" loading="lazy" />
-                            <div class="photo-info">
-                                <div class="filename">${photo.filename}</div>
-                                <div class="details">
-                                    <div>${new Date(photo.created).toLocaleString()}</div>
-                                    <div>${(photo.size / 1024).toFixed(1)} KB</div>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('');
-                    
-                } else {
-                    grid.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No photos captured yet. Click "Capture Photo" to take your first picture!</p>';
-                }
-            } catch (error) {
-                console.error('Failed to load photos:', error);
-                document.getElementById('photosGrid').innerHTML = '<p style="text-align: center; color: #ff4444; padding: 40px;">Failed to load photos</p>';
-            }
-        }
+        // Photo functionality removed - stream only
 
         // Legacy status function - replaced by connection banner system
         function showStatus(message, type) {
@@ -1330,13 +1199,7 @@
             }
         }
         
-        function showPhotos() {
-            document.getElementById('photosModal').classList.remove('hidden');
-        }
-        
-        function hidePhotos() {
-            document.getElementById('photosModal').classList.add('hidden');
-        }
+        // Photo modal functions removed - stream only
         
         function toggleMetricsOverlay() {
             const overlay = document.getElementById('metricsOverlay');
@@ -1389,10 +1252,6 @@
         function setupKeyboardShortcuts() {
             document.addEventListener('keydown', (e) => {
                 switch(e.key.toLowerCase()) {
-                    case ' ':
-                        e.preventDefault();
-                        capturePhoto();
-                        break;
                     case 'f':
                         e.preventDefault();
                         toggleFullscreen();
@@ -1408,9 +1267,6 @@
                     case 'escape':
                         if (document.getElementById('slideMenu').classList.contains('open')) {
                             toggleMenu();
-                        }
-                        if (!document.getElementById('photosModal').classList.contains('hidden')) {
-                            hidePhotos();
                         }
                         break;
                 }
@@ -1551,39 +1407,12 @@
             }
         }
         
-        // Enhanced logout
-        async function logout() {
-            cleanup();
-            
-            try {
-                await sessionApiCall('/api/auth/logout', { method: 'POST' });
-            } catch (error) {
-                console.warn('Logout API call failed:', error);
-            }
-            
-            isAuthenticated = false;
-            streamingToken = null;
-            
-            // statusUpdateInterval removed - obsolete
-            
-            if (isStreaming) {
-                stopStream();
-            }
-            
-            // Reset UI
-            document.getElementById('loginScreen').classList.remove('hidden');
-            document.getElementById('mainApp').classList.add('hidden');
-            document.getElementById('password').value = '';
-            document.getElementById('loginStatus').style.display = 'none';
-        }
+        // No logout function needed - direct access
         
-        // Enter key support for password field
+        // Initialize immediately on page load (no login required)
         document.addEventListener('DOMContentLoaded', function() {
-            document.getElementById('password').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    login();
-                }
-            });
+            console.log('🚀 Starting direct stream access...');
+            initializeApp();
         });
     </script>
 </body>
