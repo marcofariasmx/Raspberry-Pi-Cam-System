@@ -270,6 +270,8 @@ class Camera:
             # Detect sensor and get optimal configuration
             sensor_info = self._detect_sensor()
             main_resolution, use_lores = self._get_optimal_configuration(sensor_info)
+
+            main_resolution = main_resolution/2
             
             # Always use single main stream to avoid memory issues
             print(f"📷 Using single main stream configuration - {self.config.stream_width}x{self.config.stream_height}")
