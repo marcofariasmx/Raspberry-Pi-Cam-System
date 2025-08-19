@@ -270,6 +270,13 @@ class StreamMetrics {
             ? Math.round(this.latencyMeasurements[this.latencyMeasurements.length - 1])
             : null;
 
+        // Debug: log internal state
+        console.log('getMetrics internal state:', {
+            totalFrames: this.totalFrames,
+            frameDeliveryTimes: this.frameDeliveryTimes.length,
+            latencyMeasurements: this.latencyMeasurements.length
+        });
+
         return {
             actual_fps: this.actualFPS,
             latency_ms: currentLatency,
