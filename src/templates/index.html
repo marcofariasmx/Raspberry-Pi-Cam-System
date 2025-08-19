@@ -204,6 +204,7 @@
                     
                     // Compare with last frame data
                     if (!lastImageData || JSON.stringify(currentData) !== JSON.stringify(lastImageData)) {
+                        console.log('Frame detected via canvas, calling onFrameReceived');
                         streamMetrics.onFrameReceived();
                         lastImageData = currentData;
                         frameCount++;
