@@ -62,6 +62,17 @@ class StreamMetrics {
         }
 
         this.calculateActualFPS();
+        
+        // Debug every 10th frame
+        if (this.totalFrames % 10 === 0) {
+            console.log('Frame tracking debug:', {
+                totalFrames: this.totalFrames,
+                frameTimestamps: this.frameTimestamps.length,
+                frameDeliveryTimes: this.frameDeliveryTimes.length,
+                latencyMeasurements: this.latencyMeasurements.length,
+                connectionDrops: this.connectionDrops
+            });
+        }
     }
 
     // Calculate actual FPS from frame timestamps
@@ -120,7 +131,10 @@ class StreamMetrics {
 
     // Calculate connection stability (0-100%)
     calculateConnectionStability() {
-        if (this.totalFrames < 3) return null; // Reduced threshold for faster display
+        if (this.totalFrames < 3) {
+            console.log('Connection stability: not enough frames', this.totalFrames);
+            return null;
+        }
         
         const recentDrops = this.connectionDrops;
         const totalTime = this.totalFrames > 0 ? 
@@ -130,28 +144,38 @@ class StreamMetrics {
         const dropPenalty = Math.min(recentDrops * 10, 50); // Max 50% penalty for drops
         const baseStability = Math.max(0, 100 - dropPenalty);
         
+        console.log('Connection stability calculated:', Math.round(baseStability), 'totalFrames:', this.totalFrames, 'drops:', recentDrops);
         return Math.round(baseStability);
     }
 
     // Calculate network quality with actual values
     calculateNetworkQuality() {
-        if (this.latencyMeasurements.length < 1) return null; // Reduced threshold
+        if (this.latencyMeasurements.length < 1) {
+            console.log('Network quality: no latency measurements', this.latencyMeasurements.length);
+            return null;
+        }
         
         const avgLatency = this.latencyMeasurements.reduce((a, b) => a + b) / this.latencyMeasurements.length;
         const minLatency = Math.min(...this.latencyMeasurements);
         const maxLatency = Math.max(...this.latencyMeasurements);
         
-        return {
+        const result = {
             avg_latency: Math.round(avgLatency),
             min_latency: Math.round(minLatency),
             max_latency: Math.round(maxLatency),
             samples: this.latencyMeasurements.length
         };
+        
+        console.log('Network quality calculated:', result);
+        return result;
     }
 
     // Calculate frame consistency with actual jitter values
     calculateFrameConsistency() {
-        if (this.frameDeliveryTimes.length < 3) return null; // Reduced threshold
+        if (this.frameDeliveryTimes.length < 3) {
+            console.log('Frame consistency: not enough delivery times', this.frameDeliveryTimes.length);
+            return null;
+        }
         
         const avgDelivery = this.frameDeliveryTimes.reduce((a, b) => a + b) / this.frameDeliveryTimes.length;
         const variance = this.frameDeliveryTimes.reduce((acc, val) => 
@@ -161,13 +185,16 @@ class StreamMetrics {
         const minDelivery = Math.min(...this.frameDeliveryTimes);
         const maxDelivery = Math.max(...this.frameDeliveryTimes);
         
-        return {
+        const result = {
             jitter_ms: Math.round(jitter * 10) / 10,
             avg_interval_ms: Math.round(avgDelivery),
             min_interval_ms: Math.round(minDelivery),
             max_interval_ms: Math.round(maxDelivery),
             samples: this.frameDeliveryTimes.length
         };
+        
+        console.log('Frame consistency calculated:', result);
+        return result;
     }
 
     // Calculate overall stream health score with frontend + backend data
