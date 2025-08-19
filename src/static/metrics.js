@@ -33,11 +33,14 @@ class StreamMetrics {
 
     // Called when a new frame is received from MJPEG stream
     onFrameReceived() {
+        console.log('onFrameReceived called, isActive:', this.isActive);
         if (!this.isActive) return;
 
         const timestamp = performance.now();
         this.frameTimestamps.push(timestamp);
         this.totalFrames++;
+
+        console.log('Frame received, totalFrames now:', this.totalFrames);
 
         // Track connection stability
         if (this.lastFrameTime) {
@@ -63,8 +66,8 @@ class StreamMetrics {
 
         this.calculateActualFPS();
         
-        // Debug every 10th frame
-        if (this.totalFrames % 10 === 0) {
+        // Debug every 5th frame for more frequent updates
+        if (this.totalFrames % 5 === 0) {
             console.log('Frame tracking debug:', {
                 totalFrames: this.totalFrames,
                 frameTimestamps: this.frameTimestamps.length,
