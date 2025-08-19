@@ -151,8 +151,20 @@
             <span class="metric-value" id="latency">--ms</span>
         </div>
         <div class="metric">
-            <span class="metric-label">Signal:</span>
-            <span class="metric-value" id="signalQuality">--</span>
+            <span class="metric-label">Stability:</span>
+            <span class="metric-value" id="connectionStability">--</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Network:</span>
+            <span class="metric-value" id="networkQuality">--</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Jitter:</span>
+            <span class="metric-value" id="frameJitter">--</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Health:</span>
+            <span class="metric-value" id="streamHealth">--</span>
         </div>
     </div>
     
@@ -280,43 +292,74 @@
                     document.getElementById('quality').textContent = `${metrics.backend.jpeg_quality || '--'}%`;
                 }
                 
-                // Update signal quality with actual measured values
-                const signalElement = document.getElementById('signalQuality');
+                // Update individual signal metrics
+                
+                // Connection Stability
+                const stabilityElement = document.getElementById('connectionStability');
+                if (metrics.connection_stability !== null) {
+                    stabilityElement.textContent = `${metrics.connection_stability}%`;
+                    if (metrics.connection_stability >= 90) stabilityElement.style.color = '#4CAF50';
+                    else if (metrics.connection_stability >= 70) stabilityElement.style.color = '#FF9800';
+                    else stabilityElement.style.color = '#F44336';
+                } else {
+                    stabilityElement.textContent = '--';
+                    stabilityElement.style.color = '#fff';
+                }
+                
+                // Network Quality
+                const networkElement = document.getElementById('networkQuality');
+                if (metrics.network_quality) {
+                    const net = metrics.network_quality;
+                    networkElement.textContent = `${net.avg_latency}ms (${net.min_latency}-${net.max_latency})`;
+                    if (net.avg_latency < 50) networkElement.style.color = '#4CAF50';
+                    else if (net.avg_latency < 100) networkElement.style.color = '#8BC34A';
+                    else if (net.avg_latency < 200) networkElement.style.color = '#FF9800';
+                    else networkElement.style.color = '#F44336';
+                } else {
+                    networkElement.textContent = '--';
+                    networkElement.style.color = '#fff';
+                }
+                
+                // Frame Jitter
+                const jitterElement = document.getElementById('frameJitter');
+                if (metrics.frame_consistency) {
+                    const jitter = metrics.frame_consistency;
+                    jitterElement.textContent = `${jitter.jitter_ms}ms (${jitter.avg_interval_ms}ms avg)`;
+                    if (jitter.jitter_ms < 20) jitterElement.style.color = '#4CAF50';
+                    else if (jitter.jitter_ms < 50) jitterElement.style.color = '#8BC34A';
+                    else if (jitter.jitter_ms < 100) jitterElement.style.color = '#FF9800';
+                    else jitterElement.style.color = '#F44336';
+                } else {
+                    jitterElement.textContent = '--';
+                    jitterElement.style.color = '#fff';
+                }
+                
+                // Stream Health Score
+                const healthElement = document.getElementById('streamHealth');
                 if (metrics.stream_health) {
                     const health = metrics.stream_health;
-                    const details = [];
+                    let healthText = `${health.overall_score}/100`;
                     
-                    // Show actual measured values
-                    details.push(`${health.overall_score}/100`);
-                    details.push(`${health.stability_pct}% stable`);
-                    details.push(`${health.avg_latency_ms}ms avg`);
-                    details.push(`${health.jitter_ms}ms jitter`);
-                    if (health.connection_drops > 0) {
-                        details.push(`${health.connection_drops} drops`);
-                    }
-                    
-                    // Add encoding health if available
+                    // Add encoding info if available
                     if (health.encoding_health && health.encoding_health.frames_encoded > 0) {
                         const enc = health.encoding_health;
-                        details.push(`${enc.frames_encoded} frames`);
+                        healthText += ` (${enc.frames_encoded}f, ${enc.avg_encode_time_ms}ms enc)`;
                         if (enc.encoding_errors > 0) {
-                            details.push(`${enc.encoding_errors} errors`);
+                            healthText += ` [${enc.encoding_errors} err]`;
                         }
-                        details.push(`${enc.avg_encode_time_ms}ms encode`);
-                        details.push(`${enc.last_frame_size_kb}kb frame`);
                     }
                     
-                    signalElement.textContent = `${details.join(' | ')}`;
+                    healthElement.textContent = healthText;
                     
                     // Color code by overall score
-                    if (health.overall_score >= 90) signalElement.style.color = '#4CAF50';
-                    else if (health.overall_score >= 80) signalElement.style.color = '#8BC34A';
-                    else if (health.overall_score >= 70) signalElement.style.color = '#FFC107';
-                    else if (health.overall_score >= 60) signalElement.style.color = '#FF9800';
-                    else signalElement.style.color = '#F44336';
+                    if (health.overall_score >= 90) healthElement.style.color = '#4CAF50';
+                    else if (health.overall_score >= 80) healthElement.style.color = '#8BC34A';
+                    else if (health.overall_score >= 70) healthElement.style.color = '#FFC107';
+                    else if (health.overall_score >= 60) healthElement.style.color = '#FF9800';
+                    else healthElement.style.color = '#F44336';
                 } else {
-                    signalElement.textContent = '--';
-                    signalElement.style.color = '#fff';
+                    healthElement.textContent = '--';
+                    healthElement.style.color = '#fff';
                 }
                 
             } catch (error) {
