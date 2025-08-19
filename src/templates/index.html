@@ -202,12 +202,31 @@
         // Primary detection: MJPEG load events
         streamImg.addEventListener('load', detectNewFrame);
         
-        // Backup detection every 100ms
-        setInterval(() => {
-            if (streamImg.complete && streamImg.naturalHeight > 0) {
-                detectNewFrame();
-            }
-        }, 100);
+        // Adaptive backup detection based on backend FPS
+        let backupTimer = null;
+        
+        async function updateBackupTimer() {
+            const metrics = await fetchBackendMetrics();
+            const targetFps = metrics?.target_fps || 15; // Default to 15 FPS
+            
+            // Clear existing timer
+            if (backupTimer) clearInterval(backupTimer);
+            
+            // Calculate interval: 2x target FPS frequency
+            const interval = 1000 / (targetFps * 2);
+            
+            // Set new adaptive timer
+            backupTimer = setInterval(() => {
+                if (streamImg.complete && streamImg.naturalHeight > 0) {
+                    detectNewFrame();
+                }
+            }, interval);
+            
+        }
+        
+        // Update backup timer every second
+        updateBackupTimer(); // Initial setup
+        setInterval(updateBackupTimer, 1000);
         
         // Start monitoring
         streamMetrics.start();
