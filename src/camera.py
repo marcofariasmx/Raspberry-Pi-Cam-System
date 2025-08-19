@@ -271,26 +271,18 @@ class Camera:
             sensor_info = self._detect_sensor()
             main_resolution, use_lores = self._get_optimal_configuration(sensor_info)
             
-            # Create streaming configuration based on sensor capabilities
+            # Always use single main stream to avoid memory issues
+            print(f"📷 Using single main stream configuration - {self.config.stream_width}x{self.config.stream_height}")
             if use_lores:
-                print(f"📷 Using main+lores configuration - Main: {main_resolution}, Lores: {self.config.stream_width}x{self.config.stream_height}")
-                stream_config = self.camera.create_video_configuration(
-                    main={"size": main_resolution},
-                    lores={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
-                    controls={
-                        "FrameRate": self.config.stream_fps
-                    }
-                )
-                self._use_lores_stream = True
-            else:
-                print(f"📷 Using single main stream configuration - {self.config.stream_width}x{self.config.stream_height}")
-                stream_config = self.camera.create_video_configuration(
-                    main={"size": (self.config.stream_width, self.config.stream_height)},
-                    controls={
-                        "FrameRate": self.config.stream_fps
-                    }
-                )
-                self._use_lores_stream = False
+                print(f"⚠️  Would benefit from main+lores to avoid cropping, but using single stream for memory efficiency")
+            
+            stream_config = self.camera.create_video_configuration(
+                main={"size": (self.config.stream_width, self.config.stream_height)},
+                controls={
+                    "FrameRate": self.config.stream_fps
+                }
+            )
+            self._use_lores_stream = False
             
             # Apply camera transforms if configured
             if self.config.camera_hflip or self.config.camera_vflip:
@@ -376,22 +368,18 @@ class Camera:
                     print(f"🎬 Using MJPEG bitrate: {bitrate//1000000}Mbps")
                     
                     encoder = MJPEGEncoder(bitrate=bitrate)
-                    # Use lores stream if configured, otherwise main stream
-                    stream_name = 'lores' if self._use_lores_stream else 'main'
-                    self.camera.start_recording(encoder, FileOutput(self.output), name=stream_name)
+                    self.camera.start_recording(encoder, FileOutput(self.output))
                     self.streaming = True
-                    print(f"🎬 MJPEG video streaming started (hardware accelerated) from {stream_name} stream")
+                    print(f"🎬 MJPEG video streaming started (hardware accelerated)")
                     return True
                 except RuntimeError as mjpeg_error:
                     if "Hardware MJPEG not available" in str(mjpeg_error):
                         print("⚠️  Hardware MJPEG not available, falling back to JPEG encoder")
                         # Fallback to JpegEncoder
                         encoder = JpegEncoder(q=self.config.jpeg_quality)
-                        # Use lores stream if configured, otherwise main stream
-                        stream_name = 'lores' if self._use_lores_stream else 'main'
-                        self.camera.start_recording(encoder, FileOutput(self.output), name=stream_name)
+                        self.camera.start_recording(encoder, FileOutput(self.output))
                         self.streaming = True
-                        print(f"🎬 Video streaming started (software JPEG) from {stream_name} stream")
+                        print("🎬 Video streaming started (software JPEG)")
                         return True
                     else:
                         raise mjpeg_error
