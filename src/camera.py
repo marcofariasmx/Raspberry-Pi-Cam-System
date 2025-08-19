@@ -205,34 +205,43 @@ class Camera:
             try:
                 # Try MJPEGEncoder first for optimized streaming
                 try:
-                    # Convert JPEG quality (0-100) to bitrate for MJPEGEncoder
-                    # Based on resolution and quality level
-                    width, height = self.config.stream_width, self.config.stream_height
-                    fps = self.config.stream_fps
+                    # MJPEG Bitrate Quality Reference Guide:
+                    # =====================================
+                    # 
+                    # RESOLUTION-BASED TYPICAL BITRATES:
+                    # - 320x240@15fps:   0.5-2 Mbps (webcam quality)
+                    # - 640x480@15fps:   1-5 Mbps (standard definition)  
+                    # - 640x480@30fps:   2-10 Mbps (smooth SD)
+                    # - 1280x720@30fps:  5-25 Mbps (HD ready)
+                    # - 1920x1080@30fps: 10-50 Mbps (Full HD)
+                    # - 4K@30fps:        50-500 Mbps (professional)
+                    #
+                    # QUALITY GUIDELINES BY BITRATE:
+                    # - 0.5-1 Mbps:   Basic/low quality (visible compression)
+                    # - 1-3 Mbps:     Good quality (web streaming)
+                    # - 3-8 Mbps:     High quality (security cameras)  
+                    # - 8-15 Mbps:    Very high quality (broadcast)
+                    # - 15-50 Mbps:   Professional quality (minimal compression)
+                    # - 50+ Mbps:     Archival/production quality
+                    #
+                    # HARDWARE LIMITS:
+                    # - Pi 4B: ~15-20 Mbps practical limit
+                    # - Pi 5: 50+ Mbps with software encoding
+                    # - USB bandwidth: ~25 Mbps for USB 2.0
+                    #
+                    # MINIMUM/MAXIMUM VALUES:
+                    # - Minimum: ~100 Kbps (0.1 Mbps) - extremely low quality
+                    # - Maximum: ~500 Mbps - professional 4K applications
+                    # - Typical range: 1-50 Mbps for most applications
                     
-                    # Quality to bitrate mapping (base rates for 1080p30 in Mbps)
-                    # Based on JPEG quality percentage
-                    quality = self.config.jpeg_quality
-                    if quality <= 30:
-                        base_bitrate = 10  # Very Low
-                    elif quality <= 50:
-                        base_bitrate = 16  # Low
-                    elif quality <= 70:
-                        base_bitrate = 25  # Medium
-                    elif quality <= 85:
-                        base_bitrate = 35  # High
-                    else:
-                        base_bitrate = 45  # Very High
+                    # Use configured MJPEG bitrate
+                    bitrate = self.config.mjpeg_bitrate
+                    print(f"🎬 Using MJPEG bitrate: {bitrate//1000000}Mbps")
                     
-                    # Scale bitrate based on resolution and fps relative to 1080p30
-                    reference_pixels = 1920 * 1080 * 30
-                    actual_pixels = width * height * fps
-                    scaled_bitrate = int(base_bitrate * 1000000 * actual_pixels / reference_pixels)
-                    
-                    encoder = MJPEGEncoder(bitrate=scaled_bitrate)
+                    encoder = MJPEGEncoder(bitrate=bitrate)
                     self.camera.start_recording(encoder, FileOutput(self.output))
                     self.streaming = True
-                    print(f"🎬 MJPEG video streaming started (hardware accelerated, {scaled_bitrate//1000000}Mbps)")
+                    print(f"🎬 MJPEG video streaming started (hardware accelerated)")
                     return True
                 except RuntimeError as mjpeg_error:
                     if "Hardware MJPEG not available" in str(mjpeg_error):

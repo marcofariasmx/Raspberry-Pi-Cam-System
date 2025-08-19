@@ -40,6 +40,7 @@ class Config:
         stream_height: Video stream height in pixels (default: 600)  
         stream_fps: Video stream frames per second (default: 15)
         jpeg_quality: JPEG compression quality percentage (default: 85)
+        mjpeg_bitrate: MJPEG bitrate in bps (default: 10,000,000 = 10 Mbps)
         camera_hflip: Enable horizontal flip of camera image (default: False)
         camera_vflip: Enable vertical flip of camera image (default: False)
     """
@@ -53,6 +54,10 @@ class Config:
     stream_height: int = 600
     stream_fps: int = 15
     jpeg_quality: int = 85
+    
+    # MJPEG encoder settings (when hardware MJPEG is available)
+    # Bitrate in bits per second (bps) - default 10 Mbps for high quality
+    mjpeg_bitrate: int = 10000000
     
     # Camera hardware settings
     camera_hflip: bool = False
@@ -78,6 +83,7 @@ def get_config() -> Config:
         STREAM_HEIGHT: Override video stream height
         STREAM_FPS: Override video stream framerate
         JPEG_QUALITY: Override JPEG compression quality (10-100)
+        MJPEG_BITRATE: Override MJPEG bitrate in bps (e.g., "5000000" for 5Mbps)
         CAMERA_HFLIP: Enable horizontal flip ("true"/"false")
         CAMERA_VFLIP: Enable vertical flip ("true"/"false")
     
@@ -100,6 +106,7 @@ def get_config() -> Config:
         stream_height=int(os.getenv("STREAM_HEIGHT", "600")),
         stream_fps=int(os.getenv("STREAM_FPS", "15")),
         jpeg_quality=int(os.getenv("JPEG_QUALITY", "85")),
+        mjpeg_bitrate=int(os.getenv("MJPEG_BITRATE", "10000000")),
         camera_hflip=os.getenv("CAMERA_HFLIP", "false").lower() == "true",
         camera_vflip=os.getenv("CAMERA_VFLIP", "false").lower() == "true"
     )
@@ -119,4 +126,5 @@ def print_config(config: Config):
     print(f"   Server: {config.host}:{config.port}")
     print(f"   Stream: {config.stream_width}x{config.stream_height} @ {config.stream_fps}fps")
     print(f"   Quality: {config.jpeg_quality}% JPEG compression")
+    print(f"   MJPEG: {config.mjpeg_bitrate//1000000}Mbps bitrate")
     print(f"   Transforms: hflip={config.camera_hflip}, vflip={config.camera_vflip}")
