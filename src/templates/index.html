@@ -205,14 +205,22 @@
                     // Compare with last frame data
                     if (!lastImageData || JSON.stringify(currentData) !== JSON.stringify(lastImageData)) {
                         console.log('Frame detected via canvas, calling onFrameReceived');
-                        streamMetrics.onFrameReceived();
+                        if (typeof streamMetrics !== 'undefined' && streamMetrics.onFrameReceived) {
+                            streamMetrics.onFrameReceived();
+                        } else {
+                            console.error('streamMetrics not available:', typeof streamMetrics);
+                        }
                         lastImageData = currentData;
                         frameCount++;
                     }
                 } catch (error) {
                     // Fallback: just count load events
                     console.log('Canvas detection failed, using load event:', error);
-                    streamMetrics.onFrameReceived();
+                    if (typeof streamMetrics !== 'undefined' && streamMetrics.onFrameReceived) {
+                        streamMetrics.onFrameReceived();
+                    } else {
+                        console.error('streamMetrics not available in fallback:', typeof streamMetrics);
+                    }
                     frameCount++;
                 }
             }
