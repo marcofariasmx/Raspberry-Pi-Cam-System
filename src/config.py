@@ -54,6 +54,10 @@ class Config:
     stream_fps: int = 15
     jpeg_quality: int = 85
     
+    # Video encoding settings
+    codec: str = "h264"  # "mjpeg" or "h264"
+    h264_bitrate: int = 1000000  # 1Mbps for H.264 encoding
+    
     # Camera hardware settings
     camera_hflip: bool = False
     camera_vflip: bool = False
@@ -78,6 +82,8 @@ def get_config() -> Config:
         STREAM_HEIGHT: Override video stream height
         STREAM_FPS: Override video stream framerate
         JPEG_QUALITY: Override JPEG compression quality (10-100)
+        CODEC: Video codec ("mjpeg" or "h264")
+        H264_BITRATE: H.264 bitrate in bits per second (default: 1000000)
         CAMERA_HFLIP: Enable horizontal flip ("true"/"false")
         CAMERA_VFLIP: Enable vertical flip ("true"/"false")
     
@@ -100,6 +106,8 @@ def get_config() -> Config:
         stream_height=int(os.getenv("STREAM_HEIGHT", "600")),
         stream_fps=int(os.getenv("STREAM_FPS", "15")),
         jpeg_quality=int(os.getenv("JPEG_QUALITY", "85")),
+        codec=os.getenv("CODEC", "h264"),
+        h264_bitrate=int(os.getenv("H264_BITRATE", "1000000")),
         camera_hflip=os.getenv("CAMERA_HFLIP", "false").lower() == "true",
         camera_vflip=os.getenv("CAMERA_VFLIP", "false").lower() == "true"
     )
@@ -118,5 +126,9 @@ def print_config(config: Config):
     print("📷 Camera Streaming Configuration:")
     print(f"   Server: {config.host}:{config.port}")
     print(f"   Stream: {config.stream_width}x{config.stream_height} @ {config.stream_fps}fps")
-    print(f"   Quality: {config.jpeg_quality}% JPEG compression")
+    print(f"   Codec: {config.codec.upper()}")
+    if config.codec == "mjpeg":
+        print(f"   Quality: {config.jpeg_quality}% JPEG compression")
+    else:
+        print(f"   Bitrate: {config.h264_bitrate/1000000:.1f}Mbps H.264")
     print(f"   Transforms: hflip={config.camera_hflip}, vflip={config.camera_vflip}")

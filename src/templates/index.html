@@ -125,7 +125,15 @@
 </head>
 <body>
     <div class="video-container">
-        <img id="stream" src="/api/camera/stream" alt="Camera Stream">
+        <!-- Dynamic element based on codec -->
+        {% if config.codec == "h264" %}
+            <video id="stream" autoplay muted playsinline controls>
+                <source src="/api/camera/stream" type="video/mp4">
+                Your browser does not support H.264 video streaming.
+            </video>
+        {% else %}
+            <img id="stream" src="/api/camera/stream" alt="MJPEG Camera Stream">
+        {% endif %}
     </div>
     
     <div class="metrics-bar" id="metricsBar">
@@ -142,8 +150,13 @@
             <span class="metric-label"> (actual/expected)</span>
         </div>
         <div class="metric">
-            <span class="metric-label">Quality:</span>
-            <span class="metric-value" id="quality">{{ config.jpeg_quality }}%</span>
+            {% if config.codec == "h264" %}
+                <span class="metric-label">Bitrate:</span>
+                <span class="metric-value" id="quality">{{ (config.h264_bitrate / 1000000)|round(1) }}Mbps</span>
+            {% else %}
+                <span class="metric-label">Quality:</span>
+                <span class="metric-value" id="quality">{{ config.jpeg_quality }}%</span>
+            {% endif %}
         </div>
         <div class="metric">
             <span class="metric-label">Latency:</span>
@@ -158,7 +171,8 @@
         let metricsVisible = true;
         const metricsBar = document.getElementById('metricsBar');
         const toggleButton = document.getElementById('toggleMetrics');
-        const streamImg = document.getElementById('stream');
+        const streamElement = document.getElementById('stream');
+        const isVideo = streamElement.tagName.toLowerCase() === 'video';
         
         // Toggle metrics visibility
         toggleButton.addEventListener('click', () => {
@@ -167,47 +181,62 @@
             toggleButton.textContent = metricsVisible ? '📊' : '👁️';
         });
         
-        // Accurate frame detection for MJPEG streams
+        // Frame detection logic for both MJPEG and H.264
         let lastImageData = null;
         let frameCount = 0;
         
         function detectNewFrame() {
-            if (streamImg.complete && streamImg.naturalHeight > 0) {
-                // For MJPEG streams, we detect new frames by monitoring the load event
-                // and using a canvas to detect actual image changes
-                try {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = 32; // Small sample for performance
-                    canvas.height = 32;
-                    
-                    ctx.drawImage(streamImg, 0, 0, 32, 32);
-                    const imageData = ctx.getImageData(0, 0, 32, 32);
-                    const currentData = Array.from(imageData.data);
-                    
-                    // Compare with last frame data
-                    if (!lastImageData || JSON.stringify(currentData) !== JSON.stringify(lastImageData)) {
+            if (isVideo) {
+                // For H.264 video streams, we don't need complex frame detection
+                // The video element handles this automatically
+                streamMetrics.onFrameReceived();
+                frameCount++;
+            } else {
+                // For MJPEG streams, use canvas-based detection
+                if (streamElement.complete && streamElement.naturalHeight > 0) {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = 32; // Small sample for performance
+                        canvas.height = 32;
+                        
+                        ctx.drawImage(streamElement, 0, 0, 32, 32);
+                        const imageData = ctx.getImageData(0, 0, 32, 32);
+                        const currentData = Array.from(imageData.data);
+                        
+                        // Compare with last frame data
+                        if (!lastImageData || JSON.stringify(currentData) !== JSON.stringify(lastImageData)) {
+                            streamMetrics.onFrameReceived();
+                            lastImageData = currentData;
+                            frameCount++;
+                        }
+                    } catch (error) {
+                        // Fallback: just count load events
                         streamMetrics.onFrameReceived();
-                        lastImageData = currentData;
                         frameCount++;
                     }
-                } catch (error) {
-                    // Fallback: just count load events
-                    streamMetrics.onFrameReceived();
-                    frameCount++;
                 }
             }
         }
         
-        // Primary detection: MJPEG load events
-        streamImg.addEventListener('load', detectNewFrame);
-        
-        // Backup detection every 100ms
-        setInterval(() => {
-            if (streamImg.complete && streamImg.naturalHeight > 0) {
-                detectNewFrame();
-            }
-        }, 100);
+        // Set up appropriate event listeners based on element type
+        if (isVideo) {
+            // For video elements, use timeupdate event for frame tracking
+            streamElement.addEventListener('timeupdate', detectNewFrame);
+            streamElement.addEventListener('loadeddata', () => {
+                console.log('H.264 video stream loaded');
+            });
+        } else {
+            // For image elements, use load event for MJPEG
+            streamElement.addEventListener('load', detectNewFrame);
+            
+            // Backup detection every 100ms for MJPEG
+            setInterval(() => {
+                if (streamElement.complete && streamElement.naturalHeight > 0) {
+                    detectNewFrame();
+                }
+            }, 100);
+        }
         
         // Start monitoring
         streamMetrics.start();
@@ -264,7 +293,16 @@
                             `${metrics.backend.resolution.width}×${metrics.backend.resolution.height}`;
                     }
                     document.getElementById('targetFps').textContent = metrics.backend.target_fps || '--';
-                    document.getElementById('quality').textContent = `${metrics.backend.jpeg_quality || '--'}%`;
+                    
+                    // Update quality/bitrate display based on codec
+                    if (metrics.backend.codec === 'h264') {
+                        const bitrate = metrics.backend.h264_bitrate;
+                        document.getElementById('quality').textContent = bitrate ? 
+                            `${(bitrate / 1000000).toFixed(1)}Mbps` : '--Mbps';
+                    } else {
+                        document.getElementById('quality').textContent = 
+                            `${metrics.backend.jpeg_quality || '--'}%`;
+                    }
                 }
                 
             } catch (error) {

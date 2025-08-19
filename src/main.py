@@ -176,17 +176,25 @@ async def get_camera_metrics():
             "timestamp": datetime.now().isoformat()
         }
     
-    return {
+    metrics = {
         "resolution": {
             "width": config.stream_width,
             "height": config.stream_height
         },
         "target_fps": config.stream_fps,
-        "jpeg_quality": config.jpeg_quality,
+        "codec": config.codec,
         "stream_active": camera.is_streaming() if hasattr(camera, 'is_streaming') else False,
         "camera_available": camera.is_available(),
         "timestamp": datetime.now().isoformat()
     }
+    
+    # Add codec-specific metrics
+    if config.codec == "mjpeg":
+        metrics["jpeg_quality"] = config.jpeg_quality
+    else:
+        metrics["h264_bitrate"] = config.h264_bitrate
+        
+    return metrics
 
 
 @app.get("/api/camera/stream")
@@ -225,10 +233,15 @@ async def video_stream():
         if not camera.start_streaming():
             raise HTTPException(status_code=500, detail="Failed to start camera streaming")
         
-        # Return streaming response
+        # Return streaming response with appropriate media type
+        if config.codec == "h264":
+            media_type = "video/mp4"  # H.264 stream
+        else:
+            media_type = "multipart/x-mixed-replace; boundary=frame"  # MJPEG stream
+            
         return StreamingResponse(
             camera.generate_frames(),
-            media_type="multipart/x-mixed-replace; boundary=frame"
+            media_type=media_type
         )
         
     except Exception as e:

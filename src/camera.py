@@ -24,7 +24,7 @@ from typing import Generator, Optional
 
 try:
     from picamera2 import Picamera2
-    from picamera2.encoders import JpegEncoder
+    from picamera2.encoders import JpegEncoder, H264Encoder
     from picamera2.outputs import FileOutput
     from libcamera import controls, Transform
     PICAMERA2_AVAILABLE = True
@@ -46,6 +46,10 @@ except ImportError:
     class JpegEncoder:
         def __init__(self, q=85):
             self.quality = q
+    
+    class H264Encoder:
+        def __init__(self, bitrate=1000000):
+            self.bitrate = bitrate
     
     class FileOutput:
         def __init__(self, output):
@@ -112,6 +116,7 @@ class Camera:
         self.config = config
         self.camera: Optional[Picamera2] = None
         self.output: Optional[StreamingOutput] = None
+        self.encoder = None
         self.streaming = False
         self._lock = threading.Lock()
         
@@ -197,11 +202,16 @@ class Camera:
                 return False
             
             try:
-                # Create JPEG encoder with specified quality and start recording
-                encoder = JpegEncoder(q=self.config.jpeg_quality)
-                self.camera.start_recording(encoder, FileOutput(self.output))
+                # Create encoder based on configuration
+                if self.config.codec == "h264":
+                    self.encoder = H264Encoder(bitrate=self.config.h264_bitrate)
+                    print(f"🎬 H.264 streaming started - {self.config.h264_bitrate/1000000:.1f}Mbps")
+                else:
+                    self.encoder = JpegEncoder(q=self.config.jpeg_quality)
+                    print(f"🎬 MJPEG streaming started - {self.config.jpeg_quality}% quality")
+                
+                self.camera.start_recording(self.encoder, FileOutput(self.output))
                 self.streaming = True
-                print("🎬 Video streaming started")
                 return True
             except Exception as e:
                 print(f"❌ Failed to start streaming: {e}")
@@ -280,13 +290,18 @@ class Camera:
                     if frame is None:
                         continue
                         
-                # Format as MJPEG with proper boundaries
-                yield (
-                    b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n'
-                    b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' +
-                    frame + b'\r\n'
-                )
+                # Format based on codec type
+                if self.config.codec == "h264":
+                    # For H.264, yield raw frame data (browser support limited)
+                    yield frame
+                else:
+                    # Format as MJPEG with proper boundaries
+                    yield (
+                        b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n'
+                        b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' +
+                        frame + b'\r\n'
+                    )
                 
         except Exception as e:
             print(f"❌ Frame streaming error: {e}")
@@ -303,6 +318,15 @@ class Camera:
             bool: True if camera is available for streaming
         """
         return self.camera is not None or not PICAMERA2_AVAILABLE
+    
+    def is_streaming(self) -> bool:
+        """
+        Check if camera is currently streaming.
+        
+        Returns:
+            bool: True if camera is actively streaming
+        """
+        return self.streaming
     
     def cleanup(self):
         """
