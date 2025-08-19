@@ -143,13 +143,35 @@ class Camera:
         
         try:
             self.camera = Picamera2()
+            self.min_video_fps = 12  # NEW: allow AE to go as low as 12 fps in the dark
+            self.use_long_ae_for_video = True  # NEW: bias AE toward longer shutters
+
+            # Convert FPS to frame duration (µs)
+            max_period_us = int(1_000_000 / max(1, int(self.config.stream_fps)))  # e.g. 30 fps → 33_333 µs
+            min_fps = max(1, int(getattr(self.config, "min_video_fps", 12)))  # fallback 12 fps
+            min_fps = min(min_fps, self.config.stream_fps)  # never above max fps
+            min_period_us = int(1_000_000 / min_fps)  # e.g. 12 fps → 83_333 µs
+
+            video_controls = {
+                # RANGE: AE can choose exposure anywhere between 1/max_fps and 1/min_fps
+                # Bright scenes → ~30 fps; dark scenes → AE stretches toward ~12 fps
+                "FrameDurationLimits": (max_period_us, min_period_us),
+                "AeEnable": True,
+                "AeExposureMode": (
+                    controls.AeExposureModeEnum.Long
+                    if getattr(self.config, "use_long_ae_for_video", True)
+                    else controls.AeExposureModeEnum.Normal
+                ),
+                # Optional anti-flicker (uncomment if indoors; pick one based on mains)
+                # "AeFlickerMode": controls.AeFlickerModeEnum.Manual,
+                # "AeFlickerPeriod": 10000,  # 50 Hz lighting (100 Hz period)
+                # "AeFlickerPeriod": 8333,   # 60 Hz lighting (120 Hz period)
+            }
             
             # Create streaming configuration for the specified resolution and framerate
             stream_config = self.camera.create_video_configuration(
                 main={"size": (self.config.stream_width, self.config.stream_height)},
-                controls={
-                    "FrameRate": self.config.stream_fps
-                }
+                controls=video_controls
             )
             
             # Apply camera transforms if configured
