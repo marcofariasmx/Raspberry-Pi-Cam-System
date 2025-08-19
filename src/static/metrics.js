@@ -18,6 +18,12 @@ class StreamMetrics {
         this.lastFrameTime = null;
         this.frameDeliveryTimes = [];
         this.maxDeliveryTimeSamples = 20;
+        
+        console.log('StreamMetrics constructor called, initialized:', {
+            totalFrames: this.totalFrames,
+            frameDeliveryTimes: this.frameDeliveryTimes,
+            isActive: this.isActive
+        });
     }
 
     start() {
@@ -34,13 +40,19 @@ class StreamMetrics {
     // Called when a new frame is received from MJPEG stream
     onFrameReceived() {
         console.log('onFrameReceived called, isActive:', this.isActive);
+        console.log('Before frame processing:', {
+            totalFrames: this.totalFrames,
+            frameDeliveryTimes: this.frameDeliveryTimes?.length,
+            'this reference': this
+        });
+        
         if (!this.isActive) return;
 
         const timestamp = performance.now();
         this.frameTimestamps.push(timestamp);
         this.totalFrames++;
 
-        console.log('Frame received, totalFrames now:', this.totalFrames);
+        console.log('After totalFrames++:', this.totalFrames);
 
         // Track connection stability
         if (this.lastFrameTime) {
