@@ -36,6 +36,11 @@ from fastapi.staticfiles import StaticFiles
 from src.config import get_config, print_config
 from src.camera import Camera
 
+# Display Python version information
+import sys
+print(f"🐍 Running on Python {sys.version.split()[0]} ({sys.implementation.name})")
+print(f"📍 Python executable: {sys.executable}")
+
 # Initialize configuration with environment overrides
 config = get_config()
 print_config(config)
