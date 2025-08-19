@@ -271,38 +271,49 @@ class Camera:
             sensor_info = self._detect_sensor()
             main_resolution, use_lores = self._get_optimal_configuration(sensor_info)
 
-            main_resolution = main_resolution/2
-
-            # Create streaming configuration based on sensor capabilities
-            if use_lores:
-                print(f"📷 Using main+lores configuration - Main: {main_resolution}, Lores: {self.config.stream_width}x{self.config.stream_height}")
-                stream_config = self.camera.create_video_configuration(
-                    main={"size": main_resolution},
-                    lores={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
-                    controls={
-                        "FrameRate": self.config.stream_fps
-                    }
-                )
-                self._use_lores_stream = True
-            else:
-                print(f"📷 Using single main stream configuration - {self.config.stream_width}x{self.config.stream_height}")
-                stream_config = self.camera.create_video_configuration(
-                    main={"size": (self.config.stream_width, self.config.stream_height)},
-                    controls={
-                        "FrameRate": self.config.stream_fps
-                    }
-                )
-                self._use_lores_stream = False
-            
-            # Apply camera transforms if configured
-            if self.config.camera_hflip or self.config.camera_vflip:
-                stream_config["transform"] = Transform(
-                    hflip=self.config.camera_hflip,
-                    vflip=self.config.camera_vflip
-                )
-            
-            # Configure camera with our settings
-            self.camera.configure(stream_config)
+            # Try full resolution first, fall back to half resolution if memory allocation fails
+            for attempt in [1, 0.5]:
+                if attempt == 0.5:
+                    print(f"⚠️  Memory allocation failed at full resolution, trying half resolution")
+                    main_resolution = (main_resolution[0]//2, main_resolution[1]//2)
+                
+                # Create streaming configuration based on sensor capabilities
+                if use_lores:
+                    res_label = "half res" if attempt == 0.5 else ""
+                    print(f"📷 Using main+lores configuration {res_label}- Main: {main_resolution}, Lores: {self.config.stream_width}x{self.config.stream_height}")
+                    stream_config = self.camera.create_video_configuration(
+                        main={"size": main_resolution},
+                        lores={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
+                        controls={
+                            "FrameRate": self.config.stream_fps
+                        }
+                    )
+                    self._use_lores_stream = True
+                else:
+                    print(f"📷 Using single main stream configuration - {self.config.stream_width}x{self.config.stream_height}")
+                    stream_config = self.camera.create_video_configuration(
+                        main={"size": (self.config.stream_width, self.config.stream_height)},
+                        controls={
+                            "FrameRate": self.config.stream_fps
+                        }
+                    )
+                    self._use_lores_stream = False
+                
+                # Apply camera transforms if configured
+                if self.config.camera_hflip or self.config.camera_vflip:
+                    stream_config["transform"] = Transform(
+                        hflip=self.config.camera_hflip,
+                        vflip=self.config.camera_vflip
+                    )
+                
+                # Try to configure camera
+                try:
+                    self.camera.configure(stream_config)
+                    break  # Success, exit the loop
+                except Exception as e:
+                    if attempt == 0.5:  # Already tried half resolution, re-raise
+                        raise
+                    # Continue to next attempt (half resolution)
             
             # Add crop debugging information
             self._log_crop_info()
