@@ -24,7 +24,7 @@ from typing import Generator, Optional
 
 try:
     from picamera2 import Picamera2
-    from picamera2.encoders import JpegEncoder
+    from picamera2.encoders import JpegEncoder, MJPEGEncoder
     from picamera2.outputs import FileOutput
     from libcamera import controls, Transform
     PICAMERA2_AVAILABLE = True
@@ -42,8 +42,14 @@ except ImportError:
             pass
         def stop_recording(self):
             pass
+        def close(self):
+            pass
     
     class JpegEncoder:
+        def __init__(self, q=85):
+            self.quality = q
+    
+    class MJPEGEncoder:
         def __init__(self, q=85):
             self.quality = q
     
@@ -56,7 +62,7 @@ except ImportError:
             self.hflip = hflip
             self.vflip = vflip
 
-from .config import Config
+from config import Config
 
 
 class StreamingOutput(io.BufferedIOBase):
@@ -197,12 +203,24 @@ class Camera:
                 return False
             
             try:
-                # Create JPEG encoder with specified quality and start recording
-                encoder = JpegEncoder(q=self.config.jpeg_quality)
-                self.camera.start_recording(encoder, FileOutput(self.output))
-                self.streaming = True
-                print("🎬 Video streaming started")
-                return True
+                # Try MJPEGEncoder first for optimized streaming
+                try:
+                    encoder = MJPEGEncoder(q=self.config.jpeg_quality)
+                    self.camera.start_recording(encoder, FileOutput(self.output))
+                    self.streaming = True
+                    print("🎬 MJPEG video streaming started (hardware accelerated)")
+                    return True
+                except RuntimeError as mjpeg_error:
+                    if "Hardware MJPEG not available" in str(mjpeg_error):
+                        print("⚠️  Hardware MJPEG not available, falling back to JPEG encoder")
+                        # Fallback to JpegEncoder
+                        encoder = JpegEncoder(q=self.config.jpeg_quality)
+                        self.camera.start_recording(encoder, FileOutput(self.output))
+                        self.streaming = True
+                        print("🎬 Video streaming started (software JPEG)")
+                        return True
+                    else:
+                        raise mjpeg_error
             except Exception as e:
                 print(f"❌ Failed to start streaming: {e}")
                 return False
@@ -303,6 +321,15 @@ class Camera:
             bool: True if camera is available for streaming
         """
         return self.camera is not None or not PICAMERA2_AVAILABLE
+    
+    def is_streaming(self) -> bool:
+        """
+        Check if camera is currently streaming.
+        
+        Returns:
+            bool: True if camera is actively streaming
+        """
+        return self.streaming
     
     def cleanup(self):
         """
