@@ -176,6 +176,24 @@ async def get_camera_metrics():
             "timestamp": datetime.now().isoformat()
         }
     
+    # Get encoding health metrics from camera if available
+    encoding_health = {}
+    if camera and camera.is_available():
+        try:
+            # Get actual frame stats from camera
+            if hasattr(camera, 'get_encoding_stats'):
+                encoding_health = camera.get_encoding_stats()
+            else:
+                # Basic encoding health indicators
+                encoding_health = {
+                    "frames_encoded": getattr(camera, '_frames_encoded', 0),
+                    "encoding_errors": getattr(camera, '_encoding_errors', 0),
+                    "avg_encode_time_ms": getattr(camera, '_avg_encode_time', 0),
+                    "last_frame_size_kb": getattr(camera, '_last_frame_size', 0) / 1024 if hasattr(camera, '_last_frame_size') else 0
+                }
+        except Exception as e:
+            encoding_health = {"error": str(e)}
+    
     return {
         "resolution": {
             "width": config.stream_width,
@@ -185,6 +203,7 @@ async def get_camera_metrics():
         "jpeg_quality": config.jpeg_quality,
         "stream_active": camera.is_streaming() if hasattr(camera, 'is_streaming') else False,
         "camera_available": camera.is_available(),
+        "encoding_health": encoding_health,
         "timestamp": datetime.now().isoformat()
     }
 

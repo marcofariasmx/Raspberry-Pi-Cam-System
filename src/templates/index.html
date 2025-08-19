@@ -131,7 +131,8 @@
     <div class="metrics-bar" id="metricsBar">
         <div class="metric">
             <div class="status-indicator" id="statusIndicator"></div>
-            <span class="metric-label">Resolution:</span>
+            <span class="metric-value" id="statusText">Connecting</span>
+            <span class="metric-label"> | Resolution:</span>
             <span class="metric-value" id="resolution">{{ config.stream_width }}×{{ config.stream_height }}</span>
         </div>
         <div class="metric">
@@ -148,6 +149,10 @@
         <div class="metric">
             <span class="metric-label">Latency:</span>
             <span class="metric-value" id="latency">--ms</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Signal:</span>
+            <span class="metric-value" id="signalQuality">--</span>
         </div>
     </div>
     
@@ -247,14 +252,22 @@
                 document.getElementById('latency').textContent = 
                     metrics.latency_ms ? `${metrics.latency_ms}ms` : '--ms';
                 
-                // Update status indicator
+                // Update status indicator and text
                 const indicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                
                 if (metrics.backend?.camera_available && metrics.actual_fps > 0) {
                     indicator.className = 'status-indicator';
+                    statusText.textContent = 'Live';
+                    statusText.style.color = '#4CAF50';
                 } else if (metrics.backend?.camera_available) {
                     indicator.className = 'status-indicator warning';
+                    statusText.textContent = 'Buffering';
+                    statusText.style.color = '#FF9800';
                 } else {
                     indicator.className = 'status-indicator error';
+                    statusText.textContent = 'Offline';
+                    statusText.style.color = '#F44336';
                 }
                 
                 // Update backend metrics if available
@@ -265,6 +278,45 @@
                     }
                     document.getElementById('targetFps').textContent = metrics.backend.target_fps || '--';
                     document.getElementById('quality').textContent = `${metrics.backend.jpeg_quality || '--'}%`;
+                }
+                
+                // Update signal quality with actual measured values
+                const signalElement = document.getElementById('signalQuality');
+                if (metrics.stream_health) {
+                    const health = metrics.stream_health;
+                    const details = [];
+                    
+                    // Show actual measured values
+                    details.push(`${health.overall_score}/100`);
+                    details.push(`${health.stability_pct}% stable`);
+                    details.push(`${health.avg_latency_ms}ms avg`);
+                    details.push(`${health.jitter_ms}ms jitter`);
+                    if (health.connection_drops > 0) {
+                        details.push(`${health.connection_drops} drops`);
+                    }
+                    
+                    // Add encoding health if available
+                    if (health.encoding_health && health.encoding_health.frames_encoded > 0) {
+                        const enc = health.encoding_health;
+                        details.push(`${enc.frames_encoded} frames`);
+                        if (enc.encoding_errors > 0) {
+                            details.push(`${enc.encoding_errors} errors`);
+                        }
+                        details.push(`${enc.avg_encode_time_ms}ms encode`);
+                        details.push(`${enc.last_frame_size_kb}kb frame`);
+                    }
+                    
+                    signalElement.textContent = `${details.join(' | ')}`;
+                    
+                    // Color code by overall score
+                    if (health.overall_score >= 90) signalElement.style.color = '#4CAF50';
+                    else if (health.overall_score >= 80) signalElement.style.color = '#8BC34A';
+                    else if (health.overall_score >= 70) signalElement.style.color = '#FFC107';
+                    else if (health.overall_score >= 60) signalElement.style.color = '#FF9800';
+                    else signalElement.style.color = '#F44336';
+                } else {
+                    signalElement.textContent = '--';
+                    signalElement.style.color = '#fff';
                 }
                 
             } catch (error) {
