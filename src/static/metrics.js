@@ -285,12 +285,16 @@ class StreamMetrics {
             ? Math.round(this.latencyMeasurements[this.latencyMeasurements.length - 1])
             : null;
 
-        // Debug: log internal state
-        console.log('getMetrics internal state:', {
-            totalFrames: this.totalFrames,
-            frameDeliveryTimes: this.frameDeliveryTimes.length,
-            latencyMeasurements: this.latencyMeasurements.length
-        });
+        // Ensure properties exist (fallback initialization)
+        if (typeof this.totalFrames === 'undefined') {
+            this.totalFrames = this.frameTimestamps.length;
+        }
+        if (typeof this.frameDeliveryTimes === 'undefined') {
+            this.frameDeliveryTimes = [];
+        }
+        if (typeof this.connectionDrops === 'undefined') {
+            this.connectionDrops = 0;
+        }
 
         return {
             actual_fps: this.actualFPS,
