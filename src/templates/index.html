@@ -200,17 +200,32 @@
                     
                     ctx.drawImage(streamImg, 0, 0, 32, 32);
                     const imageData = ctx.getImageData(0, 0, 32, 32);
-                    const currentData = Array.from(imageData.data);
                     
-                    // Compare with last frame data
-                    if (!lastImageData || JSON.stringify(currentData) !== JSON.stringify(lastImageData)) {
+                    // Use a hash instead of full comparison for better performance
+                    let hash = 0;
+                    for (let i = 0; i < imageData.data.length; i += 4) {
+                        hash += imageData.data[i] + imageData.data[i+1] + imageData.data[i+2];
+                    }
+                    
+                    // Adaptive threshold based on FPS
+                    // Higher FPS = smaller changes between frames, lower threshold
+                    // Lower FPS = bigger changes between frames, higher threshold
+                    const threshold = Math.max(500, Math.min(2000, 3000 / (targetFPS || 15)));
+                    
+                    // Compare with last frame hash - only detect significant changes
+                    if (!lastImageData || Math.abs(hash - lastImageData) > threshold) {
                         console.log('Frame detected via canvas, calling onFrameReceived');
                         if (typeof streamMetrics !== 'undefined' && streamMetrics.onFrameReceived) {
-                            streamMetrics.onFrameReceived();
+                            try {
+                                streamMetrics.onFrameReceived();
+                                console.log('onFrameReceived call successful');
+                            } catch (error) {
+                                console.error('Error calling onFrameReceived:', error);
+                            }
                         } else {
                             console.error('streamMetrics not available:', typeof streamMetrics);
                         }
-                        lastImageData = currentData;
+                        lastImageData = hash;
                         frameCount++;
                     }
                 } catch (error) {
@@ -229,26 +244,57 @@
         // Primary detection: MJPEG load events
         streamImg.addEventListener('load', detectNewFrame);
         
-        // Enhanced backup detection 
+        // Adaptive frame detection based on backend FPS
         let lastSrcCheck = '';
-        let forceFrameDetection = false;
+        let lastCanvasCheck = 0;
+        let targetFPS = 15; // Default fallback
+        let detectionInterval = 100; // Default 100ms between detections
+        
+        // Fetch target FPS from backend and adapt detection
+        async function updateDetectionTiming() {
+            try {
+                const response = await fetch('/api/camera/metrics');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.target_fps) {
+                        targetFPS = data.target_fps;
+                        // Set detection interval to half the frame interval for good detection
+                        // e.g., 60fps = 16.7ms interval, detect every 8ms
+                        // e.g., 5fps = 200ms interval, detect every 100ms
+                        detectionInterval = Math.max(10, (1000 / targetFPS) / 2);
+                        console.log(`Adapted detection for ${targetFPS} FPS: checking every ${detectionInterval}ms`);
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not fetch target FPS, using default');
+            }
+        }
+        
+        // Update detection timing initially and every 10 seconds
+        updateDetectionTiming();
+        setInterval(updateDetectionTiming, 10000);
         
         setInterval(() => {
             if (streamImg.complete && streamImg.naturalHeight > 0) {
+                const now = performance.now();
+                
                 // Check if src has changed (some MJPEG streams update src)
                 if (streamImg.src !== lastSrcCheck) {
                     console.log('Src changed, detecting frame');
                     detectNewFrame();
                     lastSrcCheck = streamImg.src;
-                } else if (frameCount < 10) {
-                    // Force frame detection for first few frames
-                    forceFrameDetection = true;
+                    lastCanvasCheck = now;
+                } else if (frameCount < 5) {
+                    // Force frame detection for first few frames only
                     detectNewFrame();
-                } else {
-                    detectNewFrame(); // Regular detection
+                    lastCanvasCheck = now;
+                } else if (now - lastCanvasCheck > detectionInterval) {
+                    // Adaptive detection interval based on target FPS
+                    detectNewFrame();
+                    lastCanvasCheck = now;
                 }
             }
-        }, 67); // ~15fps detection rate to match your target
+        }, 10); // Check frequently but only detect when needed based on adaptive interval
         
         // Start monitoring
         streamMetrics.start();
@@ -267,6 +313,14 @@
                         network_quality: metrics.network_quality,
                         frame_consistency: metrics.frame_consistency,
                         stream_health: metrics.stream_health
+                    });
+                    
+                    // Also debug the streamMetrics object directly
+                    console.log('StreamMetrics object state:', {
+                        totalFrames: streamMetrics.totalFrames,
+                        frameDeliveryTimes: streamMetrics.frameDeliveryTimes?.length,
+                        latencyMeasurements: streamMetrics.latencyMeasurements?.length,
+                        isActive: streamMetrics.isActive
                     });
                 }
                 
