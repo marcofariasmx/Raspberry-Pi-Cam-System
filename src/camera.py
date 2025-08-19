@@ -270,7 +270,9 @@ class Camera:
             # Detect sensor and get optimal configuration
             sensor_info = self._detect_sensor()
             main_resolution, use_lores = self._get_optimal_configuration(sensor_info)
-            
+
+            main_resolution = main_resolution/2
+
             # Create streaming configuration based on sensor capabilities
             if use_lores:
                 print(f"📷 Using main+lores configuration - Main: {main_resolution}, Lores: {self.config.stream_width}x{self.config.stream_height}")
