@@ -143,7 +143,7 @@ class Camera:
         
         try:
             self.camera = Picamera2()
-            self.min_video_fps = 12  # NEW: allow AE to go as low as 12 fps in the dark
+            self.min_video_fps = 1 # NEW: allow AE to go as low as 12 fps in the dark
             self.use_long_ae_for_video = True  # NEW: bias AE toward longer shutters
 
             # Convert FPS to frame duration (µs)
