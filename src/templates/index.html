@@ -217,8 +217,10 @@
                         console.log('Frame detected via canvas, calling onFrameReceived');
                         if (typeof streamMetrics !== 'undefined' && streamMetrics.onFrameReceived) {
                             try {
+                                console.log('About to call onFrameReceived, method type:', typeof streamMetrics.onFrameReceived);
+                                console.log('streamMetrics object:', streamMetrics);
                                 streamMetrics.onFrameReceived();
-                                console.log('onFrameReceived call successful');
+                                console.log('onFrameReceived call completed');
                             } catch (error) {
                                 console.error('Error calling onFrameReceived:', error);
                             }
