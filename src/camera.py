@@ -62,7 +62,7 @@ except ImportError:
             self.hflip = hflip
             self.vflip = vflip
 
-from config import Config
+from src.config import Config
 
 
 class StreamingOutput(io.BufferedIOBase):

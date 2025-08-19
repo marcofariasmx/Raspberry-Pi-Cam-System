@@ -33,8 +33,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-from .config import get_config, print_config
-from .camera import Camera
+from src.config import get_config, print_config
+from src.camera import Camera
 
 # Initialize configuration with environment overrides
 config = get_config()
