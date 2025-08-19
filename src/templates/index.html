@@ -141,8 +141,8 @@
             <span class="metric-value" id="targetFps">--</span>
             <span class="metric-label"> (actual/expected)</span>
         </div>
-        <div class="metric">
-            <span class="metric-label">Quality:</span>
+        <div class="metric" id="qualityMetric">
+            <span class="metric-label" id="qualityLabel">Quality:</span>
             <span class="metric-value" id="quality">{{ config.jpeg_quality }}%</span>
         </div>
         <div class="metric">
@@ -283,7 +283,19 @@
                             `${metrics.backend.resolution.width}×${metrics.backend.resolution.height}`;
                     }
                     document.getElementById('targetFps').textContent = metrics.backend.target_fps || '--';
-                    document.getElementById('quality').textContent = `${metrics.backend.jpeg_quality || '--'}%`;
+                    
+                    // Update quality/bitrate display based on encoder type
+                    const qualityLabel = document.getElementById('qualityLabel');
+                    const qualityValue = document.getElementById('quality');
+                    
+                    if (metrics.backend.encoder_type === 'MJPEG') {
+                        qualityLabel.textContent = 'Bitrate:';
+                        const bitrateMbps = (metrics.backend.mjpeg_bitrate || 0) / 1000000;
+                        qualityValue.textContent = `${bitrateMbps}Mbps`;
+                    } else {
+                        qualityLabel.textContent = 'Quality:';
+                        qualityValue.textContent = `${metrics.backend.jpeg_quality || '--'}%`;
+                    }
                 }
                 
             } catch (error) {

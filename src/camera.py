@@ -122,6 +122,7 @@ class Camera:
         self._lock = threading.Lock()
         self._use_lores_stream = False
         self._sensor_info = None
+        self._encoder_type = None  # Track which encoder is being used
         
         print("📷 Initializing camera...")
         self._init_camera()
@@ -369,6 +370,7 @@ class Camera:
                     
                     encoder = MJPEGEncoder(bitrate=bitrate)
                     self.camera.start_recording(encoder, FileOutput(self.output))
+                    self._encoder_type = "MJPEG"
                     self.streaming = True
                     print(f"🎬 MJPEG video streaming started (hardware accelerated)")
                     return True
@@ -378,6 +380,7 @@ class Camera:
                         # Fallback to JpegEncoder
                         encoder = JpegEncoder(q=self.config.jpeg_quality)
                         self.camera.start_recording(encoder, FileOutput(self.output))
+                        self._encoder_type = "JPEG"
                         self.streaming = True
                         print("🎬 Video streaming started (software JPEG)")
                         return True
@@ -492,6 +495,15 @@ class Camera:
             bool: True if camera is actively streaming
         """
         return self.streaming
+    
+    def get_encoder_type(self) -> Optional[str]:
+        """
+        Get the current encoder type being used for streaming.
+        
+        Returns:
+            str: "MJPEG" for hardware encoder, "JPEG" for software encoder, None if not streaming
+        """
+        return self._encoder_type
     
     def cleanup(self):
         """

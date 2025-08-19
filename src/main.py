@@ -176,17 +176,27 @@ async def get_camera_metrics():
             "timestamp": datetime.now().isoformat()
         }
     
-    return {
+    encoder_type = camera.get_encoder_type() if hasattr(camera, 'get_encoder_type') else None
+    
+    metrics = {
         "resolution": {
             "width": config.stream_width,
             "height": config.stream_height
         },
         "target_fps": config.stream_fps,
-        "jpeg_quality": config.jpeg_quality,
         "stream_active": camera.is_streaming() if hasattr(camera, 'is_streaming') else False,
         "camera_available": camera.is_available(),
+        "encoder_type": encoder_type,
         "timestamp": datetime.now().isoformat()
     }
+    
+    # Add quality/bitrate based on encoder type
+    if encoder_type == "MJPEG":
+        metrics["mjpeg_bitrate"] = config.mjpeg_bitrate
+    else:
+        metrics["jpeg_quality"] = config.jpeg_quality
+    
+    return metrics
 
 
 @app.get("/api/camera/stream")
