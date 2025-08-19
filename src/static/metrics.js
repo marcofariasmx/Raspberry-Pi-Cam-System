@@ -120,7 +120,7 @@ class StreamMetrics {
 
     // Calculate connection stability (0-100%)
     calculateConnectionStability() {
-        if (this.totalFrames < 10) return null; // Not enough data
+        if (this.totalFrames < 3) return null; // Reduced threshold for faster display
         
         const recentDrops = this.connectionDrops;
         const totalTime = this.totalFrames > 0 ? 
@@ -135,7 +135,7 @@ class StreamMetrics {
 
     // Calculate network quality with actual values
     calculateNetworkQuality() {
-        if (this.latencyMeasurements.length < 3) return null;
+        if (this.latencyMeasurements.length < 1) return null; // Reduced threshold
         
         const avgLatency = this.latencyMeasurements.reduce((a, b) => a + b) / this.latencyMeasurements.length;
         const minLatency = Math.min(...this.latencyMeasurements);
@@ -151,7 +151,7 @@ class StreamMetrics {
 
     // Calculate frame consistency with actual jitter values
     calculateFrameConsistency() {
-        if (this.frameDeliveryTimes.length < 5) return null;
+        if (this.frameDeliveryTimes.length < 3) return null; // Reduced threshold
         
         const avgDelivery = this.frameDeliveryTimes.reduce((a, b) => a + b) / this.frameDeliveryTimes.length;
         const variance = this.frameDeliveryTimes.reduce((acc, val) => 

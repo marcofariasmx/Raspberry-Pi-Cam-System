@@ -210,6 +210,7 @@
                     }
                 } catch (error) {
                     // Fallback: just count load events
+                    console.log('Canvas detection failed, using load event:', error);
                     streamMetrics.onFrameReceived();
                     frameCount++;
                 }
@@ -219,12 +220,26 @@
         // Primary detection: MJPEG load events
         streamImg.addEventListener('load', detectNewFrame);
         
-        // Backup detection every 100ms
+        // Enhanced backup detection 
+        let lastSrcCheck = '';
+        let forceFrameDetection = false;
+        
         setInterval(() => {
             if (streamImg.complete && streamImg.naturalHeight > 0) {
-                detectNewFrame();
+                // Check if src has changed (some MJPEG streams update src)
+                if (streamImg.src !== lastSrcCheck) {
+                    console.log('Src changed, detecting frame');
+                    detectNewFrame();
+                    lastSrcCheck = streamImg.src;
+                } else if (frameCount < 10) {
+                    // Force frame detection for first few frames
+                    forceFrameDetection = true;
+                    detectNewFrame();
+                } else {
+                    detectNewFrame(); // Regular detection
+                }
             }
-        }, 100);
+        }, 67); // ~15fps detection rate to match your target
         
         // Start monitoring
         streamMetrics.start();
@@ -233,6 +248,18 @@
         async function updateMetricsDisplay() {
             try {
                 const metrics = await getAllMetrics();
+                
+                // Debug: Log metrics state occasionally
+                if (Math.random() < 0.1) { // 10% of the time
+                    console.log('Metrics debug:', {
+                        actual_fps: metrics.actual_fps,
+                        frame_samples: metrics.frame_samples,
+                        connection_stability: metrics.connection_stability,
+                        network_quality: metrics.network_quality,
+                        frame_consistency: metrics.frame_consistency,
+                        stream_health: metrics.stream_health
+                    });
+                }
                 
                 // Update actual FPS
                 const actualFpsElement = document.getElementById('actualFps');
