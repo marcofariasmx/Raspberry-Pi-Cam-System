@@ -155,7 +155,7 @@ class Camera:
             video_controls = {
                 # RANGE: AE can choose exposure anywhere between 1/max_fps and 1/min_fps
                 # Bright scenes → ~30 fps; dark scenes → AE stretches toward ~12 fps
-                "FrameDurationLimits": (max_period_us, min_period_us),
+                "FrameDurationLimits": (1000000, 1000000),
                 "AeEnable": True,
                 "AeExposureMode": (
                     controls.AeExposureModeEnum.Long
