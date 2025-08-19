@@ -50,8 +50,8 @@ except ImportError:
             self.quality = q
     
     class MJPEGEncoder:
-        def __init__(self, q=85):
-            self.quality = q
+        def __init__(self, bitrate=None):
+            self.bitrate = bitrate
     
     class FileOutput:
         def __init__(self, output):
@@ -205,10 +205,34 @@ class Camera:
             try:
                 # Try MJPEGEncoder first for optimized streaming
                 try:
-                    encoder = MJPEGEncoder(q=self.config.jpeg_quality)
+                    # Convert JPEG quality (0-100) to bitrate for MJPEGEncoder
+                    # Based on resolution and quality level
+                    width, height = self.config.stream_width, self.config.stream_height
+                    fps = self.config.stream_fps
+                    
+                    # Quality to bitrate mapping (base rates for 1080p30 in Mbps)
+                    # Based on JPEG quality percentage
+                    quality = self.config.jpeg_quality
+                    if quality <= 30:
+                        base_bitrate = 10  # Very Low
+                    elif quality <= 50:
+                        base_bitrate = 16  # Low
+                    elif quality <= 70:
+                        base_bitrate = 25  # Medium
+                    elif quality <= 85:
+                        base_bitrate = 35  # High
+                    else:
+                        base_bitrate = 45  # Very High
+                    
+                    # Scale bitrate based on resolution and fps relative to 1080p30
+                    reference_pixels = 1920 * 1080 * 30
+                    actual_pixels = width * height * fps
+                    scaled_bitrate = int(base_bitrate * 1000000 * actual_pixels / reference_pixels)
+                    
+                    encoder = MJPEGEncoder(bitrate=scaled_bitrate)
                     self.camera.start_recording(encoder, FileOutput(self.output))
                     self.streaming = True
-                    print("🎬 MJPEG video streaming started (hardware accelerated)")
+                    print(f"🎬 MJPEG video streaming started (hardware accelerated, {scaled_bitrate//1000000}Mbps)")
                     return True
                 except RuntimeError as mjpeg_error:
                     if "Hardware MJPEG not available" in str(mjpeg_error):
