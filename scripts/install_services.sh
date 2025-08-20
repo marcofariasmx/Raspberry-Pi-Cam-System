@@ -145,7 +145,7 @@ Environment=HOME=${HOME}
 Environment=PATH=/usr/bin:/bin:/usr/local/bin
 Environment=SHELL=/bin/bash
 ExecStartPre=/bin/bash -c 'cd ${PROJECT_DIR} && source venv/bin/activate && python3 -c "from src.config import get_config; get_config()" > /dev/null'
-ExecStart=/bin/bash -c 'cd ${PROJECT_DIR} && source venv/bin/activate && tmux new-session -d -s ${TMUX_SESSION} "uvicorn src.main:app --host 127.0.0.1 --port 8003"'
+ExecStart=/bin/bash -c 'cd ${PROJECT_DIR} && source venv/bin/activate && tmux new-session -d -s ${TMUX_SESSION} "uvicorn src.main:app --host 127.0.0.1 --port 8003 --loop uvloop"'
 ExecStop=/usr/bin/tmux kill-session -t ${TMUX_SESSION}
 ExecStopPost=/bin/bash -c 'tmux kill-session -t ${TMUX_SESSION} 2>/dev/null || true'
 TimeoutStartSec=30

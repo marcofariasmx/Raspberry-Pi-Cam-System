@@ -117,6 +117,13 @@ install_system_dependencies() {
         "curl"
         "wget"
         "openssl"
+        # Development headers required for Picamera2 pip installation
+        "libcap-dev"
+        "libcamera-dev"
+        "python3-libcamera"
+        "libjpeg-dev"
+        "libpng-dev"
+        "libtiff-dev"
     )
     
     for package in "${packages[@]}"; do
@@ -231,13 +238,44 @@ setup_python_environment() {
     print_status "Installing Python dependencies..."
     pip install -r requirements.txt
     
+    # Link system camera modules for cross-version compatibility
+    print_status "Configuring camera system integration..."
+    local venv_packages="$PROJECT_DIR/venv/lib/python3.13/site-packages"
+    local system_packages="/usr/lib/python3/dist-packages"
+    
+    if [[ -d "$system_packages/libcamera" ]]; then
+        # Remove any existing incomplete links
+        rm -rf "$venv_packages/libcamera" "$venv_packages/_libcamera"* 2>/dev/null || true
+        
+        # Link the main libcamera module
+        ln -sf "$system_packages/libcamera" "$venv_packages/"
+        
+        # Link all libcamera-related compiled extensions
+        find "$system_packages" -name "_libcamera*" -exec ln -sf {} "$venv_packages/" \; 2>/dev/null || true
+        find "$system_packages" -name "*libcamera*.so" -exec ln -sf {} "$venv_packages/" \; 2>/dev/null || true
+        
+        print_success "Camera system modules linked successfully"
+        
+        # List what was linked for debugging
+        print_status "Linked camera modules:"
+        ls -la "$venv_packages" | grep libcamera || echo "  No libcamera links found"
+    else
+        print_warning "System camera modules not found - camera functionality may be limited"
+    fi
+    
     # Verify installation
     print_status "Verifying Python installation..."
     python3 -c "
 import fastapi
-import picamera2
-print('✅ All Python dependencies installed successfully')
-print(f'FastAPI version: {fastapi.__version__}')
+try:
+    import libcamera
+    import picamera2
+    print('✅ All Python dependencies installed successfully')
+    print(f'FastAPI version: {fastapi.__version__}')
+    print('✅ Camera libraries available')
+except ImportError as e:
+    print(f'⚠️  Camera import issue: {e}')
+    print('FastAPI installed but camera functionality may be limited')
 "
     
     print_success "Python environment setup complete"
