@@ -36,11 +36,16 @@ class Config:
     Attributes:
         host: Server bind address (default: "0.0.0.0" for all interfaces)
         port: Server port number (default: 8000)
-        stream_width: Video stream width in pixels (default: 800)
-        stream_height: Video stream height in pixels (default: 600)  
+        stream_width: Video stream width in pixels (default: 640 for Pi Zero 2W efficiency)
+        stream_height: Video stream height in pixels (default: 480)  
         stream_fps: Video stream frames per second (default: 15)
-        jpeg_quality: JPEG compression quality percentage (default: 85)
-        mjpeg_bitrate: MJPEG bitrate in bps (default: 10,000,000 = 10 Mbps)
+        
+        # H.264 MediaMTX streaming
+        h264_bitrate: H.264 bitrate in bps (default: 1,000,000 = 1 Mbps)
+        mediamtx_udp_port: UDP port for streaming to MediaMTX (default: 8890)
+        mediamtx_webrtc_port: MediaMTX WebRTC port (default: 8889)
+        mediamtx_hls_port: MediaMTX HLS port (default: 8888)
+        
         camera_hflip: Enable horizontal flip of camera image (default: False)
         camera_vflip: Enable vertical flip of camera image (default: False)
     """
@@ -53,11 +58,12 @@ class Config:
     stream_width: int = 800
     stream_height: int = 600
     stream_fps: int = 15
-    jpeg_quality: int = 85
     
-    # MJPEG encoder settings (when hardware MJPEG is available)
-    # Bitrate in bits per second (bps) - default 10 Mbps for high quality
-    mjpeg_bitrate: int = 10000000
+    # H.264 streaming via MediaMTX
+    h264_bitrate: int = 1000000  # 1 Mbps
+    mediamtx_udp_port: int = 8890
+    mediamtx_webrtc_port: int = 8889
+    mediamtx_hls_port: int = 8888
     
     # Camera hardware settings
     camera_hflip: bool = False
@@ -82,8 +88,12 @@ def get_config() -> Config:
         STREAM_WIDTH: Override video stream width
         STREAM_HEIGHT: Override video stream height
         STREAM_FPS: Override video stream framerate
-        JPEG_QUALITY: Override JPEG compression quality (10-100)
-        MJPEG_BITRATE: Override MJPEG bitrate in bps (e.g., "5000000" for 5Mbps)
+        
+        # H.264 MediaMTX settings
+        H264_BITRATE: Override H.264 bitrate in bps (e.g., "2000000" for 2Mbps)
+        MEDIAMTX_UDP_PORT: UDP port for streaming to MediaMTX
+        MEDIAMTX_WEBRTC_PORT: MediaMTX WebRTC port
+        MEDIAMTX_HLS_PORT: MediaMTX HLS port
         CAMERA_HFLIP: Enable horizontal flip ("true"/"false")
         CAMERA_VFLIP: Enable vertical flip ("true"/"false")
     
@@ -105,8 +115,13 @@ def get_config() -> Config:
         stream_width=int(os.getenv("STREAM_WIDTH", "800")),
         stream_height=int(os.getenv("STREAM_HEIGHT", "600")),
         stream_fps=int(os.getenv("STREAM_FPS", "15")),
-        jpeg_quality=int(os.getenv("JPEG_QUALITY", "85")),
-        mjpeg_bitrate=int(os.getenv("MJPEG_BITRATE", "10000000")),
+        
+        # H.264 MediaMTX settings
+        h264_bitrate=int(os.getenv("H264_BITRATE", "1000000")),
+        mediamtx_udp_port=int(os.getenv("MEDIAMTX_UDP_PORT", "8890")),
+        mediamtx_webrtc_port=int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8889")),
+        mediamtx_hls_port=int(os.getenv("MEDIAMTX_HLS_PORT", "8888")),
+        
         camera_hflip=os.getenv("CAMERA_HFLIP", "false").lower() == "true",
         camera_vflip=os.getenv("CAMERA_VFLIP", "false").lower() == "true"
     )
@@ -125,6 +140,8 @@ def print_config(config: Config):
     print("📷 Camera Streaming Configuration:")
     print(f"   Server: {config.host}:{config.port}")
     print(f"   Stream: {config.stream_width}x{config.stream_height} @ {config.stream_fps}fps")
-    print(f"   Quality: {config.jpeg_quality}% JPEG compression")
-    print(f"   MJPEG: {config.mjpeg_bitrate//1000000}Mbps bitrate")
+    
+    print(f"   H.264: {config.h264_bitrate//1000000}Mbps bitrate")
+    print(f"   MediaMTX: WebRTC:{config.mediamtx_webrtc_port}, HLS:{config.mediamtx_hls_port}")
+    
     print(f"   Transforms: hflip={config.camera_hflip}, vflip={config.camera_vflip}")

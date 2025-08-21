@@ -24,8 +24,8 @@ from typing import Generator, Optional
 
 try:
     from picamera2 import Picamera2
-    from picamera2.encoders import JpegEncoder, MJPEGEncoder
-    from picamera2.outputs import FileOutput
+    from picamera2.encoders import H264Encoder
+    from picamera2.outputs import FfmpegOutput
     from libcamera import controls, Transform
     PICAMERA2_AVAILABLE = True
 except ImportError:
@@ -45,17 +45,13 @@ except ImportError:
         def close(self):
             pass
     
-    class JpegEncoder:
-        def __init__(self, q=85):
-            self.quality = q
-    
-    class MJPEGEncoder:
+    class H264Encoder:
         def __init__(self, bitrate=None):
             self.bitrate = bitrate
     
-    class FileOutput:
-        def __init__(self, output):
-            self.output = output
+    class FfmpegOutput:
+        def __init__(self, cmd):
+            self.cmd = cmd
     
     class Transform:
         def __init__(self, hflip=False, vflip=False):
@@ -65,24 +61,6 @@ except ImportError:
 from src.config import Config
 
 
-class StreamingOutput(io.BufferedIOBase):
-    """
-    Thread-safe output buffer for Picamera2 MJPEG streaming.
-    
-    This class implements the proper Picamera2 streaming pattern using
-    condition variables for synchronization between frame capture and
-    HTTP streaming threads.
-    """
-    
-    def __init__(self):
-        self.frame = None
-        self.condition = Condition()
-
-    def write(self, buf):
-        """Write frame data and notify waiting threads."""
-        with self.condition:
-            self.frame = buf
-            self.condition.notify_all()
 
 
 class Camera:
@@ -117,12 +95,11 @@ class Camera:
         """
         self.config = config
         self.camera: Optional[Picamera2] = None
-        self.output: Optional[StreamingOutput] = None
-        self.streaming = False
+        self.h264_output: Optional[FfmpegOutput] = None
+        self.h264_streaming = False
         self._lock = threading.Lock()
         self._use_lores_stream = False
         self._sensor_info = None
-        self._encoder_type = None  # Track which encoder is being used
         
         print("📷 Initializing camera...")
         self._init_camera()
@@ -260,8 +237,6 @@ class Camera:
             bool: True if camera was successfully initialized, False otherwise
         """
         if not PICAMERA2_AVAILABLE:
-            # Initialize mock output for development mode
-            self.output = StreamingOutput()
             print("📷 Mock camera initialized (development mode)")
             return True
         
@@ -298,10 +273,7 @@ class Camera:
             # Add crop debugging information
             self._log_crop_info()
             
-            # Create streaming output buffer
-            self.output = StreamingOutput()
-            
-            print(f"📷 Camera ready - {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps, quality {self.config.jpeg_quality}%")
+            print(f"📷 Camera ready - {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps")
             return True
             
         except Exception as e:
@@ -309,170 +281,84 @@ class Camera:
             self.camera = None
             return False
     
-    def start_streaming(self) -> bool:
+    
+    def start_h264_streaming(self) -> bool:
         """
-        Start video streaming operations.
+        Start H.264 video streaming to MediaMTX via UDP.
         
-        Enables the camera streaming mode, allowing frame generation for
-        MJPEG streaming. This method is thread-safe and can be called
-        multiple times safely.
+        Configures H.264 hardware encoding and streams via FFmpeg to MediaMTX
+        using UDP transport. This provides efficient streaming for WebRTC/HLS
+        distribution with minimal CPU overhead.
         
         Returns:
-            bool: True if streaming was started successfully, False otherwise
+            bool: True if H.264 streaming was started successfully, False otherwise
         """
         with self._lock:
-            if self.streaming:
+            if self.h264_streaming:
                 return True
             
             if not PICAMERA2_AVAILABLE:
-                self.streaming = True
-                print("🎬 Mock video streaming started")
+                self.h264_streaming = True
+                print("🎬 Mock H.264 streaming started")
                 return True
             
-            if not self.camera or not self.output:
+            if not self.camera:
                 return False
             
             try:
-                # Try MJPEGEncoder first for optimized streaming
-                try:
-                    # MJPEG Bitrate Quality Reference Guide:
-                    # =====================================
-                    # 
-                    # RESOLUTION-BASED TYPICAL BITRATES:
-                    # - 320x240@15fps:   0.5-2 Mbps (webcam quality)
-                    # - 640x480@15fps:   1-5 Mbps (standard definition)  
-                    # - 640x480@30fps:   2-10 Mbps (smooth SD)
-                    # - 1280x720@30fps:  5-25 Mbps (HD ready)
-                    # - 1920x1080@30fps: 10-50 Mbps (Full HD)
-                    # - 4K@30fps:        50-500 Mbps (professional)
-                    #
-                    # QUALITY GUIDELINES BY BITRATE:
-                    # - 0.5-1 Mbps:   Basic/low quality (visible compression)
-                    # - 1-3 Mbps:     Good quality (web streaming)
-                    # - 3-8 Mbps:     High quality (security cameras)  
-                    # - 8-15 Mbps:    Very high quality (broadcast)
-                    # - 15-50 Mbps:   Professional quality (minimal compression)
-                    # - 50+ Mbps:     Archival/production quality
-                    #
-                    # HARDWARE LIMITS:
-                    # - Pi 4B: ~15-20 Mbps practical limit
-                    # - Pi 5: 50+ Mbps with software encoding
-                    # - USB bandwidth: ~25 Mbps for USB 2.0
-                    #
-                    # MINIMUM/MAXIMUM VALUES:
-                    # - Minimum: ~100 Kbps (0.1 Mbps) - extremely low quality
-                    # - Maximum: ~500 Mbps - professional 4K applications
-                    # - Typical range: 1-50 Mbps for most applications
-                    
-                    # Use configured MJPEG bitrate
-                    bitrate = self.config.mjpeg_bitrate
-                    print(f"🎬 Using MJPEG bitrate: {bitrate//1000000}Mbps")
-                    
-                    encoder = MJPEGEncoder(bitrate=bitrate)
-                    self.camera.start_recording(encoder, FileOutput(self.output))
-                    self._encoder_type = "MJPEG"
-                    self.streaming = True
-                    print(f"🎬 MJPEG video streaming started (hardware accelerated)")
-                    return True
-                except RuntimeError as mjpeg_error:
-                    if "Hardware MJPEG not available" in str(mjpeg_error):
-                        print("⚠️  Hardware MJPEG not available, falling back to JPEG encoder")
-                        # Fallback to JpegEncoder
-                        encoder = JpegEncoder(q=self.config.jpeg_quality)
-                        self.camera.start_recording(encoder, FileOutput(self.output))
-                        self._encoder_type = "JPEG"
-                        self.streaming = True
-                        print("🎬 Video streaming started (software JPEG)")
-                        return True
-                    else:
-                        raise mjpeg_error
+                # Create H.264 encoder with configured bitrate
+                encoder = H264Encoder(bitrate=self.config.h264_bitrate)
+                
+                # Create FFmpeg output to stream UDP to MediaMTX
+                udp_url = f"udp://127.0.0.1:{self.config.mediamtx_udp_port}"
+                self.h264_output = FfmpegOutput(f"-f rtp {udp_url}")
+                
+                # Start recording with H.264 encoder
+                self.camera.start_recording(encoder, self.h264_output, name="h264")
+                self.h264_streaming = True
+                
+                print(f"🎬 H.264 streaming started to MediaMTX (UDP:{self.config.mediamtx_udp_port})")
+                print(f"   Bitrate: {self.config.h264_bitrate//1000000}Mbps")
+                return True
+                
             except Exception as e:
-                print(f"❌ Failed to start streaming: {e}")
+                print(f"❌ Failed to start H.264 streaming: {e}")
                 return False
     
-    def stop_streaming(self) -> bool:
+    def stop_h264_streaming(self) -> bool:
         """
-        Stop video streaming operations.
+        Stop H.264 video streaming to MediaMTX.
         
-        Disables camera streaming mode and stops frame generation.
+        Safely stops the H.264 streaming session and releases resources.
         This method is thread-safe and can be called multiple times safely.
         
         Returns:
-            bool: True if streaming was stopped successfully
+            bool: True if H.264 streaming was stopped successfully
         """
         with self._lock:
-            if not self.streaming:
+            if not self.h264_streaming:
                 return True
             
             try:
                 if PICAMERA2_AVAILABLE and self.camera:
-                    self.camera.stop_recording()
-                self.streaming = False
-                print("🛑 Video streaming stopped")
+                    self.camera.stop_recording("h264")
+                self.h264_streaming = False
+                self.h264_output = None
+                print("🛑 H.264 streaming stopped")
                 return True
             except Exception as e:
-                print(f"⚠️  Error stopping stream: {e}")
-                self.streaming = False
+                print(f"⚠️  Error stopping H.264 stream: {e}")
+                self.h264_streaming = False
                 return True
     
-    def generate_frames(self) -> Generator[bytes, None, None]:
+    def is_h264_streaming(self) -> bool:
         """
-        Generate MJPEG video frames for streaming.
+        Check if camera is currently streaming H.264 to MediaMTX.
         
-        This generator uses the proper Picamera2 streaming approach with
-        condition variables to wait for new frames from the camera recording.
-        Each frame is properly formatted with MJPEG boundaries and headers
-        for browser compatibility.
-        
-        In development mode, generates synthetic frames for testing.
-        In production mode, waits for frames from the camera recording.
-        
-        The generator runs until streaming is stopped and handles errors
-        gracefully by terminating the stream.
-        
-        Yields:
-            bytes: MJPEG frame data with proper boundaries and headers
+        Returns:
+            bool: True if H.264 streaming is active
         """
-        if not self.output:
-            return
-            
-        if not PICAMERA2_AVAILABLE:
-            # Mock frame generator for development
-            while self.streaming:
-                mock_frame = (
-                    b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n'
-                    b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00'
-                    b'\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t'
-                    b'\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a'
-                    b'\x1f\x1e\x1d\x1a\x1c\x1c $.\' ",#\x1c\x1c(7),01444\x1f\'9=82<.342'
-                    b'\xff\xc0\x00\x11\x08\x02X\x03 \x03\x01"\x00\x02\x11\x01\x03\x11\x01'
-                    b'\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00'
-                    b'\xff\xd9\r\n'
-                )
-                yield mock_frame
-                time.sleep(1.0 / self.config.stream_fps)
-            return
-        
-        # Real Picamera2 streaming using condition variables
-        try:
-            while self.streaming:
-                with self.output.condition:
-                    self.output.condition.wait()
-                    frame = self.output.frame
-                    if frame is None:
-                        continue
-                        
-                # Format as MJPEG with proper boundaries
-                yield (
-                    b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n'
-                    b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' +
-                    frame + b'\r\n'
-                )
-                
-        except Exception as e:
-            print(f"❌ Frame streaming error: {e}")
+        return self.h264_streaming
     
     def is_available(self) -> bool:
         """
@@ -487,23 +373,6 @@ class Camera:
         """
         return self.camera is not None or not PICAMERA2_AVAILABLE
     
-    def is_streaming(self) -> bool:
-        """
-        Check if camera is currently streaming.
-        
-        Returns:
-            bool: True if camera is actively streaming
-        """
-        return self.streaming
-    
-    def get_encoder_type(self) -> Optional[str]:
-        """
-        Get the current encoder type being used for streaming.
-        
-        Returns:
-            str: "MJPEG" for hardware encoder, "JPEG" for software encoder, None if not streaming
-        """
-        return self._encoder_type
     
     def cleanup(self):
         """
@@ -519,7 +388,7 @@ class Camera:
         3. Releases system resources
         4. Logs cleanup status
         """
-        self.stop_streaming()
+        self.stop_h264_streaming()
         
         if self.camera:
             try:
@@ -530,4 +399,4 @@ class Camera:
                 print(f"⚠️  Camera cleanup error: {e}")
             finally:
                 self.camera = None
-                self.output = None
+                self.h264_output = None

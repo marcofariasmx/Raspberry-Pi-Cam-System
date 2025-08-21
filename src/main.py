@@ -164,24 +164,24 @@ async def get_camera_metrics():
     Get real-time camera and stream metrics.
     
     Returns actual measured values for resolution, configured FPS,
-    JPEG quality, and stream status. No estimations.
+    quality settings, and stream status for both MJPEG and H.264 streams.
     
     Returns:
         dict: Real metrics including:
             - resolution: Actual stream dimensions
             - target_fps: Configured frame rate
-            - jpeg_quality: Configured JPEG quality percentage
-            - stream_active: Whether streaming is currently active
+            - stream_active: Whether MJPEG streaming is currently active
+            - h264_stream_active: Whether H.264 streaming is currently active
+            - encoder_type: Current encoder type for MJPEG stream
+            - streaming_mode: "h264" if H.264 enabled, "mjpeg" if fallback
             - timestamp: Current server timestamp
     """
     if not camera:
         return {
             "error": "Camera not available",
-            "stream_active": False,
+            "h264_stream_active": False,
             "timestamp": datetime.now().isoformat()
         }
-    
-    encoder_type = camera.get_encoder_type() if hasattr(camera, 'get_encoder_type') else None
     
     metrics = {
         "resolution": {
@@ -189,17 +189,17 @@ async def get_camera_metrics():
             "height": config.stream_height
         },
         "target_fps": config.stream_fps,
-        "stream_active": camera.is_streaming() if hasattr(camera, 'is_streaming') else False,
+        "h264_stream_active": camera.is_h264_streaming() if hasattr(camera, 'is_h264_streaming') else False,
         "camera_available": camera.is_available(),
-        "encoder_type": encoder_type,
+        "streaming_mode": "h264",
+        "h264_bitrate": config.h264_bitrate,
+        "mediamtx_ports": {
+            "webrtc": config.mediamtx_webrtc_port,
+            "hls": config.mediamtx_hls_port,
+            "udp": config.mediamtx_udp_port
+        },
         "timestamp": datetime.now().isoformat()
     }
-    
-    # Add quality/bitrate based on encoder type
-    if encoder_type == "MJPEG":
-        metrics["mjpeg_bitrate"] = config.mjpeg_bitrate
-    else:
-        metrics["jpeg_quality"] = config.jpeg_quality
     
     return metrics
 
@@ -207,24 +207,13 @@ async def get_camera_metrics():
 @app.get("/api/camera/stream")
 async def video_stream():
     """
-    MJPEG video streaming endpoint.
+    H.264 video streaming endpoint via MediaMTX.
     
-    Provides a continuous MJPEG video stream from the camera hardware.
-    The stream is formatted for direct consumption by web browsers and
-    media players that support MJPEG over HTTP.
-    
-    Stream characteristics:
-    - Format: Motion JPEG (MJPEG)
-    - Resolution: Configured via stream_width/stream_height settings
-    - Framerate: Configured via stream_fps setting
-    - Quality: Configured via jpeg_quality setting
-    - Content-Type: multipart/x-mixed-replace with frame boundaries
-    
-    The endpoint automatically starts camera streaming if not already active
-    and handles camera errors gracefully.
+    Provides efficient H.264 streaming with WebRTC/HLS distribution.
+    Uses hardware encoding for optimal performance on Raspberry Pi.
     
     Returns:
-        StreamingResponse: HTTP streaming response with MJPEG video data
+        dict: Stream information with available protocols
         
     Raises:
         HTTPException: If camera is not available or streaming fails to start
@@ -236,18 +225,50 @@ async def video_stream():
         raise HTTPException(status_code=503, detail="Camera hardware not detected")
     
     try:
-        # Start streaming
-        if not camera.start_streaming():
-            raise HTTPException(status_code=500, detail="Failed to start camera streaming")
+        if not camera.start_h264_streaming():
+            raise HTTPException(status_code=500, detail="Failed to start H.264 streaming to MediaMTX")
         
-        # Return streaming response
-        return StreamingResponse(
-            camera.generate_frames(),
-            media_type="multipart/x-mixed-replace; boundary=frame"
-        )
+        # Return information about available streams
+        return {
+            "streaming_mode": "h264",
+            "streams": {
+                "webrtc": f"http://localhost:{config.mediamtx_webrtc_port}/cam/whep",
+                "hls": f"http://localhost:{config.mediamtx_hls_port}/cam/index.m3u8",
+                "rtsp": f"rtsp://localhost:8554/cam"
+            },
+            "message": "H.264 streaming active via MediaMTX"
+        }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Streaming error: {str(e)}")
+
+
+@app.get("/api/camera/stream/info")
+async def stream_info():
+    """
+    Get information about available H.264 streaming endpoints and current status.
+    
+    Returns:
+        dict: Stream information including available protocols and URLs
+    """
+    if not camera or not camera.is_available():
+        return {
+            "camera_available": False,
+            "streams": {},
+            "message": "Camera not available"
+        }
+    
+    return {
+        "camera_available": True,
+        "streaming_mode": "h264",
+        "streams": {
+            "h264": {
+                "webrtc": f"http://{config.host}:{config.mediamtx_webrtc_port}/cam/whep",
+                "hls": f"http://{config.host}:{config.mediamtx_hls_port}/cam/index.m3u8",
+                "rtsp": f"rtsp://{config.host}:8554/cam"
+            }
+        }
+    }
 
 
 if __name__ == "__main__":

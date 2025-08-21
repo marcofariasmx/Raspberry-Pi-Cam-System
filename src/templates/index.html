@@ -125,7 +125,14 @@
 </head>
 <body>
     <div class="video-container">
-        <img id="stream" src="/api/camera/stream" alt="Camera Stream">
+        <!-- WebRTC Video Element (Primary) -->
+        <video id="webrtcStream" autoplay muted playsinline style="display: none;">
+        </video>
+        
+        <!-- HLS Video Element (Fallback) -->
+        <video id="hlsStream" autoplay muted playsinline style="display: none;">
+            <source id="hlsSource" src="" type="application/vnd.apple.mpegurl">
+        </video>
     </div>
     
     <div class="metrics-bar" id="metricsBar">
@@ -140,6 +147,10 @@
             <span class="metric-label"> / </span>
             <span class="metric-value" id="targetFps">--</span>
             <span class="metric-label"> (actual/expected)</span>
+        </div>
+        <div class="metric" id="protocolMetric">
+            <span class="metric-label">Protocol:</span>
+            <span class="metric-value" id="protocol">--</span>
         </div>
         <div class="metric" id="qualityMetric">
             <span class="metric-label" id="qualityLabel">Quality:</span>
@@ -156,9 +167,14 @@
     <script src="/static/metrics.js"></script>
     <script>
         let metricsVisible = true;
+        let currentProtocol = null;
+        let webrtcConnection = null;
+        
+        // Get DOM elements
         const metricsBar = document.getElementById('metricsBar');
         const toggleButton = document.getElementById('toggleMetrics');
-        const streamImg = document.getElementById('stream');
+        const webrtcStream = document.getElementById('webrtcStream');
+        const hlsStream = document.getElementById('hlsStream');
         
         // Toggle metrics visibility
         toggleButton.addEventListener('click', () => {
@@ -167,68 +183,159 @@
             toggleButton.textContent = metricsVisible ? '📊' : '👁️';
         });
         
-        // Accurate frame detection for MJPEG streams
-        let lastImageData = null;
-        let frameCount = 0;
-        
-        function detectNewFrame() {
-            if (streamImg.complete && streamImg.naturalHeight > 0) {
-                // For MJPEG streams, we detect new frames by monitoring the load event
-                // and using a canvas to detect actual image changes
-                try {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = 32; // Small sample for performance
-                    canvas.height = 32;
-                    
-                    ctx.drawImage(streamImg, 0, 0, 32, 32);
-                    const imageData = ctx.getImageData(0, 0, 32, 32);
-                    const currentData = Array.from(imageData.data);
-                    
-                    // Compare with last frame data
-                    if (!lastImageData || JSON.stringify(currentData) !== JSON.stringify(lastImageData)) {
-                        streamMetrics.onFrameReceived();
-                        lastImageData = currentData;
-                        frameCount++;
-                    }
-                } catch (error) {
-                    // Fallback: just count load events
-                    streamMetrics.onFrameReceived();
-                    frameCount++;
+        // Initialize streaming
+        async function initializeStream() {
+            try {
+                console.log('🚀 Initializing stream...');
+                
+                // Get stream information from backend
+                const response = await fetch('/api/camera/stream/info');
+                const streamInfo = await response.json();
+                
+                console.log('📡 Stream info:', streamInfo);
+                
+                if (!streamInfo.camera_available) {
+                    showError('Camera not available');
+                    return;
                 }
+                
+                // Try H.264 streams (WebRTC -> HLS)
+                if (streamInfo.streams.h264) {
+                    // Try WebRTC first
+                    if (await tryWebRTC(streamInfo.streams.h264.webrtc)) {
+                        currentProtocol = 'WebRTC';
+                        return;
+                    }
+                    
+                    // Fallback to HLS
+                    if (await tryHLS(streamInfo.streams.h264.hls)) {
+                        currentProtocol = 'HLS';
+                        return;
+                    }
+                    
+                    // H.264 failed
+                    showError('H.264 streaming failed. Check MediaMTX service.');
+                } else {
+                    showError('No streaming protocols available');
+                }
+                
+            } catch (error) {
+                console.error('❌ Failed to initialize stream:', error);
+                showError('Failed to initialize stream');
             }
         }
         
-        // Primary detection: MJPEG load events
-        streamImg.addEventListener('load', detectNewFrame);
-        
-        // Adaptive backup detection based on backend FPS
-        let backupTimer = null;
-        
-        async function updateBackupTimer() {
-            const metrics = await fetchBackendMetrics();
-            const targetFps = metrics?.target_fps || 15; // Default to 15 FPS
+        // Try WebRTC streaming
+        async function tryWebRTC(whepUrl) {
+            if (!window.RTCPeerConnection) {
+                console.log('⚠️  WebRTC not supported');
+                return false;
+            }
             
-            // Clear existing timer
-            if (backupTimer) clearInterval(backupTimer);
-            
-            // Calculate interval: 2x target FPS frequency
-            const interval = 1000 / (targetFps * 2);
-            
-            // Set new adaptive timer
-            backupTimer = setInterval(() => {
-                if (streamImg.complete && streamImg.naturalHeight > 0) {
-                    detectNewFrame();
+            try {
+                console.log('🔗 Trying WebRTC...');
+                
+                // Create RTCPeerConnection
+                webrtcConnection = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                
+                // Handle incoming stream
+                webrtcConnection.ontrack = (event) => {
+                    console.log('📺 WebRTC stream received');
+                    webrtcStream.srcObject = event.streams[0];
+                    showStream('webrtc');
+                };
+                
+                // Create offer and connect to MediaMTX WHEP endpoint
+                const offer = await webrtcConnection.createOffer();
+                await webrtcConnection.setLocalDescription(offer);
+                
+                const response = await fetch(whepUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/sdp' },
+                    body: offer.sdp
+                });
+                
+                if (response.ok) {
+                    const answer = await response.text();
+                    await webrtcConnection.setRemoteDescription({
+                        type: 'answer',
+                        sdp: answer
+                    });
+                    
+                    console.log('✅ WebRTC connected');
+                    return true;
                 }
-            }, interval);
+                
+            } catch (error) {
+                console.log('❌ WebRTC failed:', error);
+                if (webrtcConnection) {
+                    webrtcConnection.close();
+                    webrtcConnection = null;
+                }
+            }
             
+            return false;
         }
         
-        // Update backup timer every second
-        updateBackupTimer(); // Initial setup
-        setInterval(updateBackupTimer, 1000);
+        // Try HLS streaming
+        async function tryHLS(hlsUrl) {
+            try {
+                console.log('🎬 Trying HLS...');
+                
+                // Check if browser supports HLS natively
+                if (hlsStream.canPlayType('application/vnd.apple.mpegurl')) {
+                    console.log('📱 Using native HLS support');
+                    document.getElementById('hlsSource').src = hlsUrl;
+                    hlsStream.load();
+                    showStream('hls');
+                    return true;
+                }
+                
+                // Try HLS.js if available
+                if (window.Hls && Hls.isSupported()) {
+                    console.log('📚 Using HLS.js');
+                    const hls = new Hls();
+                    hls.loadSource(hlsUrl);
+                    hls.attachMedia(hlsStream);
+                    showStream('hls');
+                    return true;
+                }
+                
+                console.log('⚠️  HLS not supported');
+                
+            } catch (error) {
+                console.log('❌ HLS failed:', error);
+            }
+            
+            return false;
+        }
         
-        // Start monitoring
+        // Show specific stream element
+        function showStream(type) {
+            // Hide all streams
+            webrtcStream.style.display = 'none';
+            hlsStream.style.display = 'none';
+            
+            // Show selected stream
+            switch (type) {
+                case 'webrtc':
+                    webrtcStream.style.display = 'block';
+                    break;
+                case 'hls':
+                    hlsStream.style.display = 'block';
+                    break;
+            }
+        }
+        
+        // Show error message
+        function showError(message) {
+            console.error('❌', message);
+            // You could show an error overlay here
+        }
+        
+        // Start metrics monitoring
         streamMetrics.start();
         
         // Update metrics display
@@ -236,39 +343,20 @@
             try {
                 const metrics = await getAllMetrics();
                 
-                // Update actual FPS
+                // Update protocol display
+                document.getElementById('protocol').textContent = currentProtocol || '--';
+                
+                // Update FPS (WebRTC/HLS have built-in metrics)
                 const actualFpsElement = document.getElementById('actualFps');
-                const targetFpsElement = document.getElementById('targetFps');
+                actualFpsElement.textContent = 'N/A';
                 
-                if (metrics.actual_fps > 0) {
-                    actualFpsElement.textContent = metrics.actual_fps.toFixed(1);
-                    
-                    // Color-code based on actual vs expected FPS
-                    const targetFps = metrics.backend?.target_fps;
-                    if (targetFps && metrics.actual_fps > 0) {
-                        const fpsRatio = metrics.actual_fps / targetFps;
-                        if (fpsRatio >= 0.9) { // Within 10% of target
-                            actualFpsElement.style.color = '#4CAF50'; // Green
-                        } else if (fpsRatio >= 0.7) { // Within 30% of target  
-                            actualFpsElement.style.color = '#FF9800'; // Orange
-                        } else { // Below 70% of target
-                            actualFpsElement.style.color = '#F44336'; // Red
-                        }
-                    } else {
-                        actualFpsElement.style.color = '#fff'; // Default white
-                    }
-                } else {
-                    actualFpsElement.textContent = '--';
-                    actualFpsElement.style.color = '#fff';
-                }
-                
-                // Update latency
+                // Update other metrics
                 document.getElementById('latency').textContent = 
                     metrics.latency_ms ? `${metrics.latency_ms}ms` : '--ms';
                 
                 // Update status indicator
                 const indicator = document.getElementById('statusIndicator');
-                if (metrics.backend?.camera_available && metrics.actual_fps > 0) {
+                if (metrics.backend?.camera_available && currentProtocol) {
                     indicator.className = 'status-indicator';
                 } else if (metrics.backend?.camera_available) {
                     indicator.className = 'status-indicator warning';
@@ -276,7 +364,7 @@
                     indicator.className = 'status-indicator error';
                 }
                 
-                // Update backend metrics if available
+                // Update backend metrics
                 if (metrics.backend) {
                     if (metrics.backend.resolution) {
                         document.getElementById('resolution').textContent = 
@@ -284,18 +372,13 @@
                     }
                     document.getElementById('targetFps').textContent = metrics.backend.target_fps || '--';
                     
-                    // Update quality/bitrate display based on encoder type
+                    // Update bitrate display
                     const qualityLabel = document.getElementById('qualityLabel');
                     const qualityValue = document.getElementById('quality');
                     
-                    if (metrics.backend.encoder_type === 'MJPEG') {
-                        qualityLabel.textContent = 'Bitrate:';
-                        const bitrateMbps = (metrics.backend.mjpeg_bitrate || 0) / 1000000;
-                        qualityValue.textContent = `${bitrateMbps}Mbps`;
-                    } else {
-                        qualityLabel.textContent = 'Quality:';
-                        qualityValue.textContent = `${metrics.backend.jpeg_quality || '--'}%`;
-                    }
+                    qualityLabel.textContent = 'Bitrate:';
+                    const bitrateMbps = (metrics.backend.h264_bitrate || 0) / 1000000;
+                    qualityValue.textContent = `${bitrateMbps}Mbps`;
                 }
                 
             } catch (error) {
@@ -303,10 +386,9 @@
             }
         }
         
-        // Update metrics every second
+        // Initialize everything
+        initializeStream();
         setInterval(updateMetricsDisplay, 1000);
-        
-        // Initial update
         setTimeout(updateMetricsDisplay, 500);
     </script>
 </body>
