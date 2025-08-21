@@ -232,9 +232,9 @@ async def video_stream():
         return {
             "streaming_mode": "h264",
             "streams": {
-                "webrtc": f"http://localhost:{config.mediamtx_webrtc_port}/cam/whep",
-                "hls": f"http://localhost:{config.mediamtx_hls_port}/cam/index.m3u8",
-                "rtsp": f"rtsp://localhost:8554/cam"
+                "webrtc": f"/api/mediamtx/webrtc",
+                "hls": f"/api/mediamtx/hls",
+                "rtsp": f"rtsp://{config.host}:8554/cam"
             },
             "message": "H.264 streaming active via MediaMTX"
         }
@@ -269,6 +269,18 @@ async def stream_info():
             }
         }
     }
+
+
+@app.get("/api/mediamtx/webrtc")
+async def mediamtx_webrtc_proxy():
+    """Proxy WebRTC requests to MediaMTX for domain compatibility."""
+    return RedirectResponse(url=f"http://localhost:{config.mediamtx_webrtc_port}/cam/whep")
+
+
+@app.get("/api/mediamtx/hls")
+async def mediamtx_hls_proxy():
+    """Proxy HLS requests to MediaMTX for domain compatibility."""
+    return RedirectResponse(url=f"http://localhost:{config.mediamtx_hls_port}/cam/index.m3u8")
 
 
 if __name__ == "__main__":
