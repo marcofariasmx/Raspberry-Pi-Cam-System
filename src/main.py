@@ -225,9 +225,13 @@ async def video_stream():
         raise HTTPException(status_code=503, detail="Camera hardware not detected")
     
     try:
+        # Force start H.264 streaming
+        print("🎬 Attempting to start H.264 streaming...")
         if not camera.start_h264_streaming():
+            print("❌ Failed to start H.264 streaming")
             raise HTTPException(status_code=500, detail="Failed to start H.264 streaming to MediaMTX")
         
+        print("✅ H.264 streaming started successfully")
         # Return information about available streams
         return {
             "streaming_mode": "h264",
