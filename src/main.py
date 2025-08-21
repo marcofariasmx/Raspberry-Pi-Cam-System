@@ -267,8 +267,8 @@ async def stream_info():
         "streaming_mode": "h264",
         "streams": {
             "h264": {
-                "webrtc": f"http://{config.host}:{config.mediamtx_webrtc_port}/cam/whep",
-                "hls": f"http://{config.host}:{config.mediamtx_hls_port}/cam/index.m3u8",
+                "webrtc": f"/api/mediamtx/webrtc",
+                "hls": f"/api/mediamtx/hls", 
                 "rtsp": f"rtsp://{config.host}:8554/cam"
             }
         }

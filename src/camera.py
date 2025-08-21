@@ -270,6 +270,23 @@ class Camera:
             # Configure camera with our settings
             self.camera.configure(stream_config)
             
+            # Configure for H.264 encoding
+            video_config = self.camera.create_video_configuration(
+                main={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
+                controls={
+                    "FrameRate": self.config.stream_fps,
+                    "AeEnable": True,
+                    "AwbEnable": True
+                },
+                transform=Transform(
+                    hflip=self.config.camera_hflip,
+                    vflip=self.config.camera_vflip
+                )
+            )
+            
+            # Also configure for H.264
+            self.camera.configure(video_config)
+            
             # Add crop debugging information
             self._log_crop_info()
             
