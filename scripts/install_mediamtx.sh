@@ -47,90 +47,48 @@ sudo mkdir -p $MEDIAMTX_DIR/config
 
 # Create MediaMTX configuration file optimized for Pi Zero 2W
 sudo tee $MEDIAMTX_DIR/mediamtx.yml > /dev/null << 'EOF'
-# MediaMTX Configuration for Raspberry Pi Zero 2W H.264 Streaming
-# Optimized for low resource usage and maximum efficiency
+# MediaMTX Configuration for Raspberry Pi H.264 Streaming
 
 # General settings
 logLevel: info
 logDestinations: [stdout]
-logFile: mediamtx.log
 
 # API settings
 api: yes
 apiAddress: 127.0.0.1:9997
 
-# Metrics (lightweight monitoring)
+# Metrics
 metrics: yes
 metricsAddress: 127.0.0.1:9998
 
-# WebRTC settings (optimized for low latency)
+# WebRTC settings
 webrtc: yes
 webrtcAddress: :8889
-webrtcEncryption: no  # Reduce CPU overhead on Pi Zero 2W
-webrtcServerKey: server.key
-webrtcServerCert: server.crt
+webrtcEncryption: no
 webrtcAllowOrigin: "*"
-webrtcTrustedProxies: []
-webrtcLocalUDPAddress: :8000
-webrtcLocalTCPAddress: :8001
 
-# HLS settings (fallback for non-WebRTC browsers)
+# HLS settings
 hls: yes
 hlsAddress: :8888
 hlsEncryption: no
-hlsServerKey: server.key
-hlsServerCert: server.crt
 hlsAllowOrigin: "*"
-hlsTrustedProxies: []
-hlsAlwaysRemux: no
 hlsVariant: lowLatency
 hlsSegmentCount: 3
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
-hlsSegmentMaxSize: 50M
 
-# RTSP settings (for debugging and testing)
+# RTSP settings
 rtsp: yes
 rtspAddress: :8554
 protocols: [tcp, udp]
 encryption: "no"
-serverKey: server.key
-serverCert: server.crt
-authMethods: []
 
-# Path configuration for camera stream
+# Path configuration
 paths:
   cam:
-    # Source will be the UDP stream from picamera2
     source: udp://127.0.0.1:8890
     sourceProtocol: udp
-    
-    # Enable all protocols for maximum compatibility
-    publishUser: ""
-    publishPass: ""
-    publishIPs: []
-    readUser: ""
-    readPass: ""
-    readIPs: []
-    
-    # Recording disabled to save resources
     record: no
-    
-    # WebRTC optimization
-    runOnInit: ""
-    runOnInitRestart: no
-    runOnDemand: ""
-    runOnDemandRestart: no
-    runOnDemandStartTimeout: 10s
-    runOnDemandCloseAfter: 10s
-    runOnReady: ""
-    runOnReadyRestart: no
-    runOnNotReady: ""
-    runOnNotReadyRestart: no
-    runOnRead: ""
-    runOnReadRestart: no
-    runOnUnread: ""
-    runOnUnreadRestart: no
 EOF
 
 # Get current user and group
