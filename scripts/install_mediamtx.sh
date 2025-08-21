@@ -116,7 +116,7 @@ StandardError=journal
 
 # Resource limits
 LimitNOFILE=65536
-MemoryLimit=256M
+MemoryMax=256M
 
 [Install]
 WantedBy=multi-user.target
