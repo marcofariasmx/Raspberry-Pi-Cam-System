@@ -188,9 +188,12 @@
             try {
                 console.log('🚀 Initializing stream...');
                 
-                // Get stream information from backend
-                const response = await fetch('/api/camera/stream/info');
-                const streamInfo = await response.json();
+                // Get stream information from backend and trigger H.264 streaming
+                const streamResponse = await fetch('/api/camera/stream');
+                const streamResult = await streamResponse.json();
+                
+                const infoResponse = await fetch('/api/camera/stream/info');
+                const streamInfo = await infoResponse.json();
                 
                 console.log('📡 Stream info:', streamInfo);
                 

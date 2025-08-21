@@ -27,9 +27,10 @@ to development mode when running without camera modules for testing purposes.
 
 import os
 from datetime import datetime
+import httpx
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
@@ -275,16 +276,41 @@ async def stream_info():
     }
 
 
-@app.get("/api/mediamtx/webrtc")
-async def mediamtx_webrtc_proxy():
+@app.api_route("/api/mediamtx/webrtc", methods=["GET", "POST", "PATCH", "DELETE"])
+async def mediamtx_webrtc_proxy(request: Request):
     """Proxy WebRTC requests to MediaMTX for domain compatibility."""
-    return RedirectResponse(url=f"http://localhost:{config.mediamtx_webrtc_port}/cam/whep")
+    target_url = f"http://localhost:{config.mediamtx_webrtc_port}/cam/whep"
+    
+    async with httpx.AsyncClient() as client:
+        # Forward the request to MediaMTX
+        response = await client.request(
+            method=request.method,
+            url=target_url,
+            headers=dict(request.headers),
+            content=await request.body(),
+            follow_redirects=True
+        )
+        
+        # Return the response from MediaMTX
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            headers=dict(response.headers)
+        )
 
 
 @app.get("/api/mediamtx/hls")
 async def mediamtx_hls_proxy():
     """Proxy HLS requests to MediaMTX for domain compatibility."""
-    return RedirectResponse(url=f"http://localhost:{config.mediamtx_hls_port}/cam/index.m3u8")
+    target_url = f"http://localhost:{config.mediamtx_hls_port}/cam/index.m3u8"
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(target_url, follow_redirects=True)
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            headers=dict(response.headers)
+        )
 
 
 if __name__ == "__main__":
