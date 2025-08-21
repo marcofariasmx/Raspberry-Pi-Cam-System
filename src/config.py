@@ -61,7 +61,7 @@ class Config:
     
     # H.264 streaming via MediaMTX
     h264_bitrate: int = 1000000  # 1 Mbps
-    mediamtx_udp_port: int = 8890
+    mediamtx_udp_port: int = 8891
     mediamtx_webrtc_port: int = 8889
     mediamtx_hls_port: int = 8888
     

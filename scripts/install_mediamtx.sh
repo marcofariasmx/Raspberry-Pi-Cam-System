@@ -80,13 +80,13 @@ hlsPartDuration: 200ms
 # RTSP settings
 rtsp: yes
 rtspAddress: :8554
-protocols: [tcp, udp]
-encryption: "no"
+rtspTransports: [tcp, udp]
+rtspEncryption: "no"
 
 # Path configuration
 paths:
   cam:
-    source: udp://127.0.0.1:8890
+    source: udp://127.0.0.1:8891
     sourceProtocol: udp
     record: no
 EOF
