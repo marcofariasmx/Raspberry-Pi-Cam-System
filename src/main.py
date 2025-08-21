@@ -153,7 +153,7 @@ async def health_check():
         "stream_config": {
             "resolution": f"{config.stream_width}x{config.stream_height}",
             "fps": config.stream_fps,
-            "quality": config.jpeg_quality
+            "h264_bitrate": config.h264_bitrate
         }
     }
 
