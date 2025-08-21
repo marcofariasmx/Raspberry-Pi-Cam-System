@@ -133,6 +133,12 @@ paths:
     runOnUnreadRestart: no
 EOF
 
+# Get current user and group
+CURRENT_USER=$(whoami)
+CURRENT_GROUP=$(id -gn)
+
+echo "👤 Using user: $CURRENT_USER:$CURRENT_GROUP"
+
 # Create systemd service for MediaMTX
 sudo tee /etc/systemd/system/mediamtx.service > /dev/null << EOF
 [Unit]
@@ -141,8 +147,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
+User=$CURRENT_USER
+Group=$CURRENT_GROUP
 WorkingDirectory=$MEDIAMTX_DIR
 ExecStart=$MEDIAMTX_DIR/mediamtx $MEDIAMTX_DIR/mediamtx.yml
 Restart=always
@@ -150,7 +156,7 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# Resource limits for Pi Zero 2W
+# Resource limits
 LimitNOFILE=65536
 MemoryLimit=256M
 
@@ -160,10 +166,10 @@ EOF
 
 # Create log directory
 sudo mkdir -p /var/log/mediamtx
-sudo chown pi:pi /var/log/mediamtx
+sudo chown $CURRENT_USER:$CURRENT_GROUP /var/log/mediamtx
 
 # Set permissions
-sudo chown -R pi:pi $MEDIAMTX_DIR
+sudo chown -R $CURRENT_USER:$CURRENT_GROUP $MEDIAMTX_DIR
 
 # Reload systemd and enable service
 sudo systemctl daemon-reload
