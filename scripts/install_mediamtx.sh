@@ -17,7 +17,7 @@ case $ARCH in
         MEDIAMTX_ARCH="armv7"
         ;;
     aarch64)
-        MEDIAMTX_ARCH="arm64v8"
+        MEDIAMTX_ARCH="arm64"
         ;;
     *)
         echo "❌ Unsupported architecture: $ARCH"
