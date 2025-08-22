@@ -88,10 +88,9 @@ rtspEncryption: "no"
 # Path configuration
 paths:
   cam:
-    source: udp://127.0.0.1:8891
-    sourceProtocol: udp
+    # Use publisher mode - camera publishes directly to MediaMTX
     sourceOnDemand: no
-    sourceAnyPortEnable: true
+    sourceAnyPortEnable: yes
     record: no
 EOF
 

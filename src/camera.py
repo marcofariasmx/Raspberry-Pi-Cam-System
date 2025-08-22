@@ -330,15 +330,15 @@ class Camera:
                     iperiod=30       # Insert keyframes every 30 frames (2 seconds at 15fps)
                 )
                 
-                # Create FFmpeg output to stream raw H.264 to MediaMTX via UDP
-                udp_url = f"udp://127.0.0.1:{self.config.mediamtx_udp_port}"
-                self.h264_output = FfmpegOutput(f"-f h264 -fflags +genpts+igndts {udp_url}")
+                # Create FFmpeg output to publish H.264 directly to MediaMTX via RTSP
+                rtsp_url = f"rtsp://127.0.0.1:8554/cam"
+                self.h264_output = FfmpegOutput(f"-f rtsp -rtsp_transport tcp {rtsp_url}")
                 
                 # Start recording with H.264 encoder
                 self.camera.start_recording(encoder, self.h264_output)
                 self.h264_streaming = True
                 
-                print(f"🎬 H.264 streaming started to MediaMTX (UDP:{self.config.mediamtx_udp_port})")
+                print(f"🎬 H.264 streaming started to MediaMTX (RTSP:8554/cam)")
                 print(f"   Bitrate: {self.config.h264_bitrate//1000000}Mbps")
                 return True
                 
