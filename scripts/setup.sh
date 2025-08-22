@@ -117,6 +117,7 @@ install_system_dependencies() {
         "curl"
         "wget"
         "openssl"
+        "jq"  # For JSON parsing in scripts
         # Development headers required for Picamera2 pip installation
         "libcap-dev"
         "libcamera-dev"
@@ -318,6 +319,96 @@ configure_environment() {
     print_status "  - Camera and streaming settings"
 }
 
+# Function to install MediaMTX
+install_mediamtx() {
+    print_status "Installing MediaMTX streaming server..."
+    
+    # Detect architecture
+    local arch=$(uname -m)
+    local mediamtx_arch
+    case $arch in
+        armv6l) mediamtx_arch="armv6" ;;
+        armv7l) mediamtx_arch="armv7" ;;
+        aarch64) mediamtx_arch="arm64" ;;
+        *) 
+            print_error "Unsupported architecture: $arch"
+            return 1
+            ;;
+    esac
+    
+    print_status "Detected architecture: $arch (using $mediamtx_arch)"
+    
+    # Create MediaMTX directory
+    local mediamtx_dir="/opt/mediamtx"
+    sudo mkdir -p $mediamtx_dir
+    
+    # Download latest MediaMTX release
+    print_status "Downloading latest MediaMTX..."
+    local latest_version
+    latest_version=$(curl -s https://api.github.com/repos/bluenviron/mediamtx/releases/latest | jq -r .tag_name)
+    local download_url="https://github.com/bluenviron/mediamtx/releases/download/${latest_version}/mediamtx_${latest_version}_linux_${mediamtx_arch}.tar.gz"
+    
+    print_status "Downloading: $download_url"
+    curl -L $download_url | sudo tar -xz -C $mediamtx_dir
+    
+    # Make executable
+    sudo chmod +x $mediamtx_dir/mediamtx
+    
+    # Create optimized configuration for Pi H.264 streaming
+    sudo tee $mediamtx_dir/mediamtx.yml > /dev/null << 'EOF'
+# MediaMTX Configuration for Raspberry Pi H.264 Streaming
+
+# General settings
+logLevel: info
+logDestinations: [stdout]
+
+# API settings
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Metrics
+metrics: yes
+metricsAddress: 127.0.0.1:9998
+
+# WebRTC settings
+webrtc: yes
+webrtcAddress: :8889
+webrtcEncryption: no
+webrtcAllowOrigin: "*"
+
+# HLS settings
+hls: yes
+hlsAddress: :8888
+hlsEncryption: no
+hlsAllowOrigin: "*"
+hlsAlwaysRemux: no
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+
+# RTSP settings
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [tcp, udp]
+rtspEncryption: "no"
+
+# Path configuration for H.264 streaming
+paths:
+  cam:
+    # Camera publishes to this path via RTSP
+    sourceOnDemand: no
+    sourceAnyPortEnable: yes
+    record: no
+EOF
+    
+    # Set permissions
+    sudo chown -R $USER:$USER $mediamtx_dir
+    
+    print_success "MediaMTX installed successfully in $mediamtx_dir"
+}
+
 # Function to test application
 test_application() {
     print_status "Testing application startup..."
@@ -358,6 +449,10 @@ run_main_setup() {
     setup_project_structure
     setup_python_environment  
     configure_environment
+    
+    # MediaMTX setup
+    install_mediamtx
+    
     test_application
     
     print_success "✅ Application setup complete!"

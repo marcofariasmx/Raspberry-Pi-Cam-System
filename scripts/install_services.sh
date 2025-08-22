@@ -123,6 +123,35 @@ check_prerequisites() {
     print_success "Prerequisites check passed"
 }
 
+# Function to create MediaMTX systemd service
+create_mediamtx_service() {
+    print_status "Creating MediaMTX streaming server service..."
+    
+    # Create the MediaMTX service file (system-wide)
+    sudo tee /etc/systemd/system/mediamtx.service > /dev/null << EOF
+[Unit]
+Description=MediaMTX Media Server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=$USER
+Group=$(id -gn)
+WorkingDirectory=/opt/mediamtx
+ExecStart=/opt/mediamtx/mediamtx /opt/mediamtx/mediamtx.yml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    print_success "MediaMTX service created: /etc/systemd/system/mediamtx.service"
+}
+
 # Function to create camera app systemd service
 create_camera_service() {
     print_status "Creating camera application service..."
@@ -130,12 +159,13 @@ create_camera_service() {
     # Create user systemd directory
     mkdir -p ~/.config/systemd/user
     
-    # Create the camera service file
+    # Create the camera service file (depends on MediaMTX)
     cat > ~/.config/systemd/user/${SERVICE_NAME}.service << EOF
 [Unit]
 Description=Raspberry Pi Camera Web App (Tmux Session)
-After=network-online.target
+After=network-online.target mediamtx.service
 Wants=network-online.target
+Requires=mediamtx.service
 
 [Service]
 Type=oneshot
@@ -145,10 +175,11 @@ Environment=HOME=${HOME}
 Environment=PATH=/usr/bin:/bin:/usr/local/bin
 Environment=SHELL=/bin/bash
 ExecStartPre=/bin/bash -c 'cd ${PROJECT_DIR} && source venv/bin/activate && python3 -c "from src.config import get_config; get_config()" > /dev/null'
+ExecStartPre=/bin/bash -c 'until curl -s http://localhost:9997/v3/paths/list >/dev/null 2>&1; do sleep 1; done'
 ExecStart=/bin/bash -c 'cd ${PROJECT_DIR} && source venv/bin/activate && tmux new-session -d -s ${TMUX_SESSION} "uvicorn src.main:app --host 127.0.0.1 --port 8003 --loop uvloop"'
 ExecStop=/usr/bin/tmux kill-session -t ${TMUX_SESSION}
 ExecStopPost=/bin/bash -c 'tmux kill-session -t ${TMUX_SESSION} 2>/dev/null || true'
-TimeoutStartSec=30
+TimeoutStartSec=60
 TimeoutStopSec=10
 
 [Install]
@@ -156,6 +187,19 @@ WantedBy=default.target
 EOF
     
     print_success "Camera service created: ~/.config/systemd/user/${SERVICE_NAME}.service"
+}
+
+# Function to enable and start MediaMTX service
+enable_mediamtx_service() {
+    print_status "Enabling MediaMTX service for auto-start..."
+    
+    # Reload systemd daemon
+    sudo systemctl daemon-reload
+    
+    # Enable the service
+    sudo systemctl enable mediamtx.service
+    
+    print_success "MediaMTX service enabled for auto-start on boot"
 }
 
 # Function to enable and start camera service
@@ -172,6 +216,33 @@ enable_camera_service() {
     sudo loginctl enable-linger $USER
     
     print_success "Camera service enabled for auto-start on boot"
+}
+
+# Function to start MediaMTX service
+start_mediamtx_service() {
+    print_status "Starting MediaMTX streaming server..."
+    
+    # Stop any existing service
+    sudo systemctl stop mediamtx.service 2>/dev/null || true
+    
+    # Start the service
+    sudo systemctl start mediamtx.service
+    
+    # Wait for MediaMTX to be ready
+    local attempts=0
+    local max_attempts=15
+    while [[ $attempts -lt $max_attempts ]]; do
+        if curl -s http://localhost:9997/v3/paths/list >/dev/null 2>&1; then
+            print_success "MediaMTX streaming server started and ready"
+            return 0
+        fi
+        sleep 1
+        attempts=$((attempts + 1))
+    done
+    
+    print_error "MediaMTX failed to start or is not responding"
+    print_status "Check status with: sudo systemctl status mediamtx.service"
+    return 1
 }
 
 # Function to start camera service
@@ -208,27 +279,56 @@ start_camera_service() {
     fi
 }
 
-# Function to test camera service
-test_camera_service() {
-    print_status "Testing camera service..."
+# Function to test complete streaming pipeline
+test_streaming_pipeline() {
+    print_status "Testing complete H.264 streaming pipeline..."
     
-    # Wait for service to fully initialize
-    sleep 5
+    # Wait for services to fully initialize
+    sleep 8
     
-    # Test HTTP endpoint
+    # Test MediaMTX API
+    print_status "Checking MediaMTX status..."
+    if curl -s --connect-timeout 5 http://127.0.0.1:9997/v3/paths/list > /dev/null; then
+        local mediamtx_status
+        mediamtx_status=$(curl -s http://127.0.0.1:9997/v3/paths/list)
+        if echo "$mediamtx_status" | grep -q '"ready":true'; then
+            print_success "✅ MediaMTX receiving H.264 stream from camera"
+        else
+            print_warning "⚠️ MediaMTX ready but no active stream yet"
+        fi
+    else
+        print_warning "❌ MediaMTX API not responding"
+    fi
+    
+    # Test Camera HTTP endpoint
+    print_status "Checking camera application..."
     if curl -s --connect-timeout 10 http://127.0.0.1:8003/health > /dev/null; then
-        print_success "Camera web app is responding on port 8003"
+        print_success "✅ Camera web app is responding on port 8003"
         
         # Show health check response
         local health_response
         health_response=$(curl -s http://127.0.0.1:8003/health)
-        echo "Health check response:"
+        echo "Camera health check:"
         echo "$health_response" | python3 -m json.tool 2>/dev/null || echo "$health_response"
         
     else
-        print_warning "Camera web app is not responding yet"
+        print_warning "❌ Camera web app is not responding yet"
         print_status "This might be normal during initial startup"
         print_status "Check logs with: tmux attach -t ${TMUX_SESSION}"
+    fi
+    
+    # Test streaming endpoints
+    print_status "Checking streaming endpoints..."
+    if curl -s --connect-timeout 5 http://127.0.0.1:8889/cam/whep > /dev/null 2>&1; then
+        print_success "✅ WebRTC endpoint available"
+    else
+        print_status "⚠️ WebRTC endpoint not ready (normal during startup)"
+    fi
+    
+    if curl -s --connect-timeout 5 http://127.0.0.1:8888/cam/index.m3u8 > /dev/null 2>&1; then
+        print_success "✅ HLS endpoint available"
+    else
+        print_status "⚠️ HLS endpoint not ready (normal during startup)"
     fi
 }
 
@@ -236,21 +336,35 @@ test_camera_service() {
 show_service_status() {
     print_header
     
-    print_status "Checking service status..."
+    print_status "Checking streaming system status..."
     echo
     
-    # Check systemd service status
-    print_status "Camera service status:"
-    if systemctl --user is-active ${SERVICE_NAME}.service >/dev/null 2>&1; then
-        print_success "✅ Service is running"
+    # Check MediaMTX service status
+    print_status "MediaMTX streaming server status:"
+    if sudo systemctl is-active mediamtx.service >/dev/null 2>&1; then
+        print_success "✅ MediaMTX service is running"
     else
-        print_warning "❌ Service is not running"
+        print_warning "❌ MediaMTX service is not running"
+    fi
+    
+    if sudo systemctl is-enabled mediamtx.service >/dev/null 2>&1; then
+        print_success "✅ MediaMTX service is enabled (auto-start on boot)"
+    else
+        print_warning "❌ MediaMTX service is not enabled"
+    fi
+    
+    # Check camera service status
+    print_status "Camera application status:"
+    if systemctl --user is-active ${SERVICE_NAME}.service >/dev/null 2>&1; then
+        print_success "✅ Camera service is running"
+    else
+        print_warning "❌ Camera service is not running"
     fi
     
     if systemctl --user is-enabled ${SERVICE_NAME}.service >/dev/null 2>&1; then
-        print_success "✅ Service is enabled (auto-start on boot)"
+        print_success "✅ Camera service is enabled (auto-start on boot)"
     else
-        print_warning "❌ Service is not enabled"
+        print_warning "❌ Camera service is not enabled"
     fi
     
     echo
@@ -286,11 +400,14 @@ show_service_status() {
     fi
     
     echo
-    print_status "Detailed status:"
-    echo "  systemctl --user status ${SERVICE_NAME}.service  - Service details"
-    echo "  tmux attach -t ${TMUX_SESSION}                    - View application logs"  
-    echo "  systemctl --user restart ${SERVICE_NAME}.service - Restart service"
-    echo "  curl -s http://127.0.0.1:8003/health            - Test HTTP endpoint"
+    print_status "Detailed status commands:"
+    echo "  sudo systemctl status mediamtx.service           - MediaMTX service details"
+    echo "  sudo journalctl -u mediamtx -f                   - MediaMTX logs"
+    echo "  systemctl --user status ${SERVICE_NAME}.service  - Camera service details"
+    echo "  tmux attach -t ${TMUX_SESSION}                    - View camera logs"  
+    echo "  systemctl --user restart ${SERVICE_NAME}.service - Restart camera service"
+    echo "  curl -s http://127.0.0.1:9997/v3/paths/list     - MediaMTX API status"
+    echo "  curl -s http://127.0.0.1:8003/health            - Camera app health"
 }
 
 # Function to create management scripts
@@ -300,11 +417,19 @@ create_management_scripts() {
     # Create restart script
     cat > "$PROJECT_DIR/restart_camera.sh" << 'EOF'
 #!/bin/bash
-echo "🔄 Restarting camera service..."
+echo "🔄 Restarting streaming services..."
+echo "1. Restarting MediaMTX..."
+sudo systemctl restart mediamtx.service
+echo "2. Waiting for MediaMTX to be ready..."
+sleep 3
+echo "3. Restarting camera service..."
 systemctl --user restart camera-app.service
 sleep 3
-echo "✅ Service restarted"
-systemctl --user status camera-app.service --no-pager -l
+echo "✅ Services restarted"
+echo ""
+echo "📊 Service status:"
+sudo systemctl status mediamtx.service --no-pager -l | head -5
+systemctl --user status camera-app.service --no-pager -l | head -5
 EOF
     
     # Create status script  
@@ -325,6 +450,25 @@ echo "   IP: $(hostname -I | awk '{print $1}')"
 echo "   Uptime: $(uptime -p)"
 echo ""
 
+echo -e "${BLUE}📡 MediaMTX Status:${NC}"
+if sudo systemctl is-active mediamtx.service >/dev/null 2>&1; then
+    echo -e "   ${GREEN}✅ MediaMTX Service Running${NC}"
+else
+    echo -e "   ${RED}❌ MediaMTX Service Stopped${NC}"
+fi
+
+if curl -s --connect-timeout 3 http://127.0.0.1:9997/v3/paths/list >/dev/null 2>&1; then
+    echo -e "   ${GREEN}✅ MediaMTX API Responding${NC}"
+    if curl -s http://127.0.0.1:9997/v3/paths/list | grep -q '"ready":true'; then
+        echo -e "   ${GREEN}✅ H.264 Stream Active${NC}"
+    else
+        echo -e "   ${YELLOW}⚠️  No Active Stream${NC}"
+    fi
+else
+    echo -e "   ${RED}❌ MediaMTX API Not Responding${NC}"
+fi
+
+echo ""
 echo -e "${BLUE}📷 Camera App Status:${NC}"
 if systemctl --user is-active camera-app.service >/dev/null 2>&1; then
     echo -e "   ${GREEN}✅ Service Running${NC}"
@@ -350,10 +494,18 @@ echo "   Local: http://127.0.0.1:8003"
 echo "   Network: http://$(hostname -I | awk '{print $1}'):8003"
 
 echo ""
+echo -e "${BLUE}🎬 Streaming URLs:${NC}"
+echo "   WebRTC: http://127.0.0.1:8889/cam/whep"
+echo "   HLS: http://127.0.0.1:8888/cam/index.m3u8"
+echo "   RTSP: rtsp://127.0.0.1:8554/cam"
+
+echo ""
 echo -e "${BLUE}📋 Quick Commands:${NC}"
-echo "   systemctl --user status camera-app.service  - Check service"
-echo "   tmux attach -t camera-app                   - View logs"
-echo "   systemctl --user restart camera-app.service - Restart"
+echo "   sudo systemctl status mediamtx.service      - Check MediaMTX"
+echo "   sudo journalctl -u mediamtx -f              - MediaMTX logs"
+echo "   systemctl --user status camera-app.service  - Check camera service"
+echo "   tmux attach -t camera-app                   - View camera logs"
+echo "   ./restart_camera.sh                         - Restart all services"
 echo "   ./camera_status.sh                          - Run this status check"
 EOF
     
@@ -419,20 +571,30 @@ install_services() {
     display_current_credentials
     
     # Create and configure services
+    create_mediamtx_service
     create_camera_service
+    enable_mediamtx_service
     enable_camera_service
+    
+    # Start services in correct order
+    start_mediamtx_service
     start_camera_service
     
-    # Test service
-    test_camera_service
+    # Test complete pipeline
+    test_streaming_pipeline
     
     # Create management scripts
     create_management_scripts
     
-    print_success "🎉 Service installation completed!"
+    print_success "🎉 H.264 streaming system installation completed!"
     echo
-    print_status "Camera web app is now configured to start automatically on boot"
+    print_status "Complete streaming pipeline configured:"
+    print_status "  📷 Picamera2 → H.264 hardware encoding"
+    print_status "  📡 MediaMTX → WebRTC/HLS distribution" 
+    print_status "  🔄 Both services start automatically on boot"
+    echo
     print_status "Access the application at: http://$(hostname -I | awk '{print $1}'):8003"
+    print_status "Stream formats: WebRTC (ultra-low latency), HLS (broad compatibility)"
     echo
     
     # Show reboot recommendation
