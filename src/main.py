@@ -66,26 +66,16 @@ async def startup_event():
     """
     Application startup event handler.
     
-    Initializes the camera system when the web server starts up.
-    This includes camera hardware detection, configuration validation,
-    and preparation for streaming operations.
-    
-    The startup process logs the initialization status and reports
-    any issues with camera hardware availability.
+    Since MediaMTX manages the camera directly, we just check MediaMTX availability
+    instead of initializing camera hardware directly.
     """
     global camera
     
     print("🚀 Starting Pi Camera Streaming App...")
+    print("📹 Using MediaMTX for camera management (no direct camera initialization)")
     
-    try:
-        camera = Camera(config)
-        if camera.is_available():
-            print("✅ Camera ready for streaming")
-        else:
-            print("⚠️  Camera not available - check hardware connection")
-    except Exception as e:
-        print(f"❌ Camera initialization failed: {e}")
-        camera = None
+    # Set camera to None since MediaMTX handles it
+    camera = None
     
     print(f"🌐 Server starting on {config.host}:{config.port}")
 
@@ -210,24 +200,29 @@ async def video_stream():
     """
     H.264 video streaming endpoint via MediaMTX.
     
-    Provides efficient H.264 streaming with WebRTC/HLS distribution.
-    Uses hardware encoding for optimal performance on Raspberry Pi.
+    MediaMTX manages the camera directly via rpiCamera source.
+    This endpoint just returns information about available stream protocols.
     
     Returns:
         dict: Stream information with available protocols
-        
-    Raises:
-        HTTPException: If camera is not available or streaming fails to start
     """
-    if not camera:
-        raise HTTPException(status_code=503, detail="Camera not available")
-    
-    if not camera.is_available():
-        raise HTTPException(status_code=503, detail="Camera hardware not detected")
-    
+    # Check if MediaMTX camera is available via API
     try:
-        # MediaMTX now handles camera directly via rpiCamera source
-        print("🎬 MediaMTX manages camera directly - no manual streaming needed")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("http://localhost:9997/v3/paths/list")
+            paths = response.json()
+            
+            # Find cam path and check if ready
+            cam_ready = False
+            for item in paths.get("items", []):
+                if item["name"] == "cam" and item["ready"]:
+                    cam_ready = True
+                    break
+            
+            if not cam_ready:
+                raise HTTPException(status_code=503, detail="MediaMTX camera not ready")
+        
+        print("🎬 MediaMTX camera stream available")
         
         # Return information about available streams
         return {
@@ -240,6 +235,8 @@ async def video_stream():
             "message": "H.264 streaming available via MediaMTX rpiCamera source"
         }
         
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="MediaMTX not available")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Streaming error: {str(e)}")
 
@@ -247,29 +244,41 @@ async def video_stream():
 @app.get("/api/camera/stream/info")
 async def stream_info():
     """
-    Get information about available H.264 streaming endpoints and current status.
+    Get information about available H.264 streaming endpoints via MediaMTX.
     
     Returns:
         dict: Stream information including available protocols and URLs
     """
-    if not camera or not camera.is_available():
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("http://localhost:9997/v3/paths/list")
+            paths = response.json()
+            
+            # Find cam path and check if ready
+            cam_ready = False
+            for item in paths.get("items", []):
+                if item["name"] == "cam":
+                    cam_ready = item["ready"]
+                    break
+        
+        return {
+            "camera_available": cam_ready,
+            "streaming_mode": "h264",
+            "streams": {
+                "h264": {
+                    "webrtc": f"/api/mediamtx/webrtc",
+                    "hls": f"/api/mediamtx/hls", 
+                    "rtsp": f"rtsp://{config.host}:8554/cam"
+                }
+            } if cam_ready else {}
+        }
+        
+    except httpx.RequestError:
         return {
             "camera_available": False,
             "streams": {},
-            "message": "Camera not available"
+            "message": "MediaMTX not available"
         }
-    
-    return {
-        "camera_available": True,
-        "streaming_mode": "h264",
-        "streams": {
-            "h264": {
-                "webrtc": f"/api/mediamtx/webrtc",
-                "hls": f"/api/mediamtx/hls", 
-                "rtsp": f"rtsp://{config.host}:8554/cam"
-            }
-        }
-    }
 
 
 @app.api_route("/api/mediamtx/webrtc", methods=["GET", "POST", "PATCH", "DELETE"])
