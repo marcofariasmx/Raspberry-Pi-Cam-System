@@ -164,6 +164,7 @@
     
     <button class="toggle-metrics" id="toggleMetrics" title="Toggle metrics display">📊</button>
     
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.10/dist/hls.min.js"></script>
     <script src="/static/metrics.js"></script>
     <script>
         let metricsVisible = true;
@@ -269,6 +270,9 @@
                     
                     console.log('✅ WebRTC connected');
                     return true;
+                } else {
+                    const errorText = await response.text();
+                    console.error('❌ WebRTC error:', response.status, errorText);
                 }
                 
             } catch (error) {
