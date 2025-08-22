@@ -78,6 +78,13 @@ async def startup_event():
         camera = Camera(config)
         if camera.is_available():
             print("✅ Camera initialized and ready for streaming")
+            
+            # Auto-start H.264 streaming to MediaMTX on startup
+            print("🎬 Auto-starting H.264 streaming to MediaMTX...")
+            if camera.start_h264_streaming():
+                print("✅ H.264 streaming auto-started successfully")
+            else:
+                print("⚠️  Failed to auto-start H.264 streaming")
         else:
             print("⚠️  Camera not available - check hardware connection")
     except Exception as e:

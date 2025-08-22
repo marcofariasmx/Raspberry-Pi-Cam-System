@@ -332,7 +332,7 @@ class Camera:
                 
                 # Create FFmpeg output to publish H.264 directly to MediaMTX via RTSP
                 rtsp_url = f"rtsp://127.0.0.1:8554/cam"
-                self.h264_output = FfmpegOutput(f"-f rtsp -rtsp_transport tcp {rtsp_url}")
+                self.h264_output = FfmpegOutput(f"-f rtsp -rtsp_transport tcp -fflags +genpts {rtsp_url}")
                 
                 # Start recording with H.264 encoder
                 self.camera.start_recording(encoder, self.h264_output)
