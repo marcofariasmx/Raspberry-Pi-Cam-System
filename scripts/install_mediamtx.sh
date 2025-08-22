@@ -94,7 +94,6 @@ paths:
     rpiCameraHeight: 900
     rpiCameraFPS: 15
     rpiCameraBitrate: 1000000
-    rpiCameraH264Profile: main
     record: no
 EOF
 
