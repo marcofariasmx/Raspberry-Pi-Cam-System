@@ -323,14 +323,18 @@ class Camera:
                 return False
             
             try:
-                # Reconfigure camera with current FPS setting
+                # Reconfigure camera with current settings including transforms
                 video_config = self.camera.create_video_configuration(
                     main={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
                     controls={
                         "FrameRate": self.config.stream_fps,
                         "AeEnable": True,
                         "AwbEnable": True
-                    }
+                    },
+                    transform=Transform(
+                        hflip=self.config.camera_hflip,
+                        vflip=self.config.camera_vflip
+                    )
                 )
                 self.camera.configure(video_config)
                 
