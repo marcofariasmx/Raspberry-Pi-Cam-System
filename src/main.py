@@ -28,6 +28,7 @@ to development mode when running without camera modules for testing purposes.
 import os
 from datetime import datetime
 import httpx
+import asyncio
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, Response
@@ -61,6 +62,35 @@ templates = Jinja2Templates(directory="src/templates")
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
 
+async def monitor_stream_readiness():
+    """Monitor MediaMTX to detect when H.264 stream becomes ready."""
+    max_attempts = 15  # 15 attempts = ~15 seconds max wait
+    attempt = 0
+    
+    while attempt < max_attempts:
+        try:
+            await asyncio.sleep(1)  # Check every second
+            attempt += 1
+            
+            # Check MediaMTX API for stream readiness
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.get("http://localhost:9997/v3/paths/list")
+                data = response.json()
+                
+                # Look for 'cam' path with ready=true
+                for item in data.get("items", []):
+                    if item.get("name") == "cam" and item.get("ready", False):
+                        print(f"🟢 Stream ready! MediaMTX is now receiving H.264 stream (took {attempt} seconds)")
+                        print("🌐 WebRTC/HLS endpoints are now available for clients")
+                        return
+                        
+        except Exception as e:
+            # Silently continue - MediaMTX might not be ready yet
+            pass
+    
+    print("⚠️  Stream readiness check timed out - stream may still be starting")
+
+
 @app.on_event("startup")
 async def startup_event():
     """
@@ -83,6 +113,10 @@ async def startup_event():
             print("🎬 Auto-starting H.264 streaming to MediaMTX...")
             if camera.start_h264_streaming():
                 print("✅ H.264 streaming auto-started successfully")
+                print("⏳ Stream will be available in MediaMTX within ~5 seconds...")
+                
+                # Start background task to monitor stream readiness
+                asyncio.create_task(monitor_stream_readiness())
             else:
                 print("⚠️  Failed to auto-start H.264 streaming")
         else:
