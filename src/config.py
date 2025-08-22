@@ -118,7 +118,7 @@ def get_config() -> Config:
         
         # H.264 MediaMTX settings
         h264_bitrate=int(os.getenv("H264_BITRATE", "1000000")),
-        mediamtx_udp_port=int(os.getenv("MEDIAMTX_UDP_PORT", "8890")),
+        mediamtx_udp_port=int(os.getenv("MEDIAMTX_UDP_PORT", "8891")),
         mediamtx_webrtc_port=int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8889")),
         mediamtx_hls_port=int(os.getenv("MEDIAMTX_HLS_PORT", "8888")),
         
