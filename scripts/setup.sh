@@ -59,13 +59,13 @@ check_os_requirements() {
         fi
     fi
     
-    # Check Python version
+    # Check Python version (use your compiled version)
     local python_version
-    python_version=$(python3 --version 2>&1 | awk '{print $2}')
+    python_version=$(python --version 2>&1 | awk '{print $2}')
     print_status "Python version: $python_version"
     
     # Check if Python 3.9+ (minimum for modern features)
-    if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)"; then
+    if python -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)"; then
         print_success "Python version compatible"
     else
         print_warning "Python 3.9+ recommended (found $python_version)"
@@ -154,7 +154,7 @@ verify_camera() {
 test_python_camera() {
     print_status "Testing Python camera libraries..."
     
-    if python3 -c "
+    if python -c "
 import sys
 try:
     from picamera2 import Picamera2
@@ -226,8 +226,8 @@ setup_python_environment() {
     # Ensure we're in the right directory
     cd "$PROJECT_DIR"
     
-    # Create virtual environment with system packages
-    python3 -m venv venv --system-site-packages
+    # Create virtual environment with system packages (use your compiled Python)
+    python -m venv venv --system-site-packages
     
     # Activate virtual environment
     source venv/bin/activate
@@ -241,7 +241,7 @@ setup_python_environment() {
     
     # Link system camera modules for cross-version compatibility
     print_status "Configuring camera system integration..."
-    local venv_packages="$PROJECT_DIR/venv/lib/python3.13/site-packages"
+    local venv_packages=$(find "$PROJECT_DIR/venv/lib" -name "site-packages" -type d | head -1)
     local system_packages="/usr/lib/python3/dist-packages"
     
     if [[ -d "$system_packages/libcamera" ]]; then

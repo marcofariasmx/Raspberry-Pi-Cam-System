@@ -176,7 +176,7 @@ Environment=PATH=/usr/bin:/bin:/usr/local/bin
 Environment=SHELL=/bin/bash
 ExecStartPre=/bin/bash -c 'cd ${PROJECT_DIR} && source venv/bin/activate && python -c "from src.config import get_config; get_config()" > /dev/null'
 ExecStartPre=/bin/bash -c 'until curl -s http://localhost:9997/v3/paths/list >/dev/null 2>&1; do sleep 1; done'
-ExecStart=/bin/bash -c 'cd ${PROJECT_DIR} && source venv/bin/activate && tmux new-session -d -s ${TMUX_SESSION} "uvicorn src.main:app --host 127.0.0.1 --port 8003 --loop uvloop"'
+ExecStart=/bin/bash -c 'cd ${PROJECT_DIR} && source venv/bin/activate && tmux new-session -d -s ${TMUX_SESSION} "uvicorn src.main:app --host 0.0.0.0 --port 8003 --loop uvloop"'
 ExecStop=/usr/bin/tmux kill-session -t ${TMUX_SESSION}
 ExecStopPost=/bin/bash -c 'tmux kill-session -t ${TMUX_SESSION} 2>/dev/null || true'
 TimeoutStartSec=60
