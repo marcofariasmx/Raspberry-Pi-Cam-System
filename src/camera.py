@@ -332,7 +332,7 @@ class Camera:
                 
                 # Create FFmpeg output to stream raw H.264 to MediaMTX via UDP
                 udp_url = f"udp://127.0.0.1:{self.config.mediamtx_udp_port}"
-                self.h264_output = FfmpegOutput(f"-f h264 -fflags +genpts {udp_url}")
+                self.h264_output = FfmpegOutput(f"-f h264 -fflags +genpts+igndts {udp_url}")
                 
                 # Start recording with H.264 encoder
                 self.camera.start_recording(encoder, self.h264_output)
