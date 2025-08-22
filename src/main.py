@@ -226,13 +226,9 @@ async def video_stream():
         raise HTTPException(status_code=503, detail="Camera hardware not detected")
     
     try:
-        # Force start H.264 streaming
-        print("🎬 Attempting to start H.264 streaming...")
-        if not camera.start_h264_streaming():
-            print("❌ Failed to start H.264 streaming")
-            raise HTTPException(status_code=500, detail="Failed to start H.264 streaming to MediaMTX")
+        # MediaMTX now handles camera directly via rpiCamera source
+        print("🎬 MediaMTX manages camera directly - no manual streaming needed")
         
-        print("✅ H.264 streaming started successfully")
         # Return information about available streams
         return {
             "streaming_mode": "h264",
@@ -241,7 +237,7 @@ async def video_stream():
                 "hls": f"/api/mediamtx/hls",
                 "rtsp": f"rtsp://{config.host}:8554/cam"
             },
-            "message": "H.264 streaming active via MediaMTX"
+            "message": "H.264 streaming available via MediaMTX rpiCamera source"
         }
         
     except Exception as e:

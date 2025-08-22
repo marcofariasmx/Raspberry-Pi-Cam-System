@@ -86,9 +86,13 @@ rtspEncryption: "no"
 # Path configuration
 paths:
   cam:
-    source: udp://127.0.0.1:8891
-    sourceProtocol: udp
-    sourceAnyPortEnable: true
+    source: rpiCamera
+    sourceOnDemand: yes
+    rpiCameraWidth: 1200
+    rpiCameraHeight: 900
+    rpiCameraFPS: 15
+    rpiCameraBitrate: 1000000
+    rpiCameraRaspiStill: false  # CRITICAL: Use libcamera instead of deprecated raspivid
     record: no
 EOF
 
