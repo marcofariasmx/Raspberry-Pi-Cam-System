@@ -277,7 +277,7 @@ async def mediamtx_webrtc_proxy(request: Request):
     """Proxy WebRTC requests to MediaMTX for domain compatibility."""
     target_url = f"http://localhost:{config.mediamtx_webrtc_port}/cam/whep"
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         # Forward the request to MediaMTX
         response = await client.request(
             method=request.method,
@@ -300,7 +300,7 @@ async def mediamtx_hls_proxy():
     """Proxy HLS requests to MediaMTX for domain compatibility."""
     target_url = f"http://localhost:{config.mediamtx_hls_port}/cam/index.m3u8"
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(target_url, follow_redirects=True)
         return Response(
             content=response.content,
