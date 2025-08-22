@@ -266,7 +266,7 @@ setup_python_environment() {
     
     # Verify installation
     print_status "Verifying Python installation..."
-    python3 -c "
+    python -c "
 import fastapi
 try:
     import libcamera
@@ -417,7 +417,7 @@ test_application() {
     source venv/bin/activate
     
     # Test application configuration
-    python3 -c "from src.config import get_config; get_config()" 2>/dev/null || {
+    python -c "from src.config import get_config; get_config()" 2>/dev/null || {
         print_warning "Application configuration test failed"
         return 1
     }
@@ -460,7 +460,7 @@ run_main_setup() {
     print_status "Next steps:"
     print_status "1. Install services: $PROJECT_DIR/scripts/install_services.sh"
     print_status "2. Configure Cloudflare tunnel (see docs/DEPLOYMENT.md)"
-    print_status "3. Test the application: cd $PROJECT_DIR && source venv/bin/activate && python3 src/main.py"
+    print_status "3. Test the application: cd $PROJECT_DIR && source venv/bin/activate && python src/main.py"
     echo
     print_status "🔄 To update code in future:"
     print_status "   git pull                                    # Get latest code"
@@ -504,9 +504,9 @@ show_status() {
     if [[ -f "src/main.py" ]] && [[ -d "venv" ]]; then
         print_status "Testing application..."
         source venv/bin/activate 2>/dev/null || true
-        if python3 -c "from src.config import get_config; print('✅ Application ready')" 2>/dev/null; then
+        if python -c "from src.config import get_config; print('✅ Application ready')" 2>/dev/null; then
             print_success "✅ Application is ready to run"
-            print_status "Start with: cd $PROJECT_DIR && source venv/bin/activate && python3 src/main.py"
+            print_status "Start with: cd $PROJECT_DIR && source venv/bin/activate && python src/main.py"
         else
             print_warning "❌ Application needs configuration"
         fi
