@@ -92,7 +92,6 @@ paths:
     rpiCameraHeight: 900
     rpiCameraFPS: 15
     rpiCameraBitrate: 1000000
-    rpiCameraRaspiStill: false  # CRITICAL: Use libcamera instead of deprecated raspivid
     record: no
 EOF
 
