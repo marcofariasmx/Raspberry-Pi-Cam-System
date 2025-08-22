@@ -88,6 +88,7 @@ paths:
   cam:
     source: udp://127.0.0.1:8891
     sourceProtocol: udp
+    sourceAnyPortEnable: true
     record: no
 EOF
 

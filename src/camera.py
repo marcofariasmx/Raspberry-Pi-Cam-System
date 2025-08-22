@@ -323,12 +323,16 @@ class Camera:
                 return False
             
             try:
-                # Create H.264 encoder with configured bitrate
-                encoder = H264Encoder(bitrate=self.config.h264_bitrate)
+                # Create H.264 encoder with proper configuration for MediaMTX
+                encoder = H264Encoder(
+                    bitrate=self.config.h264_bitrate,
+                    repeat=True,     # Repeat SPS/PPS headers for stream robustness
+                    iperiod=30       # Insert keyframes every 30 frames (2 seconds at 15fps)
+                )
                 
-                # Create FFmpeg output to stream UDP to MediaMTX
+                # Create FFmpeg output to stream RTP directly to MediaMTX
                 udp_url = f"udp://127.0.0.1:{self.config.mediamtx_udp_port}"
-                self.h264_output = FfmpegOutput(f"-f mpegts {udp_url}")
+                self.h264_output = FfmpegOutput(f"-f rtp {udp_url}")
                 
                 # Start recording with H.264 encoder
                 self.camera.start_recording(encoder, self.h264_output)
