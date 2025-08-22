@@ -29,11 +29,13 @@ import os
 from datetime import datetime
 import httpx
 import asyncio
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from src.config import get_config, print_config
 from src.camera import Camera
@@ -359,72 +361,69 @@ async def mediamtx_hls_proxy(path: str = "index.m3u8"):
         )
 
 
-@app.post("/api/camera/controls/resolution")
-async def update_resolution(width: int, height: int):
-    """Update camera resolution on-demand (picamera2 advantage!)"""
+class CameraSettings(BaseModel):
+    """Camera settings model for API requests."""
+    width: Optional[int] = None
+    height: Optional[int] = None
+    fps: Optional[int] = None
+    bitrate: Optional[int] = None
+
+@app.post("/api/camera/controls")
+async def update_camera_settings(settings: CameraSettings):
+    """
+    Update all camera settings in one request (picamera2 advantage!).
+    
+    Only updates the provided parameters. Example:
+    - {"fps": 30} - Only change FPS
+    - {"width": 1640, "height": 1232, "bitrate": 3000000} - Change resolution and bitrate
+    - {"fps": 30, "width": 1640, "height": 1232, "bitrate": 3000000} - Change everything
+    """
     if not camera or not camera.is_available():
         raise HTTPException(status_code=503, detail="Camera not available")
     
     try:
+        # Track what's being changed
+        changes = []
+        
         # Stop current streaming
         camera.stop_h264_streaming()
         
-        # Update config
-        config.stream_width = width
-        config.stream_height = height
+        # Update provided settings
+        if settings.width is not None and settings.height is not None:
+            config.stream_width = settings.width
+            config.stream_height = settings.height
+            changes.append(f"resolution to {settings.width}x{settings.height}")
+        elif settings.width is not None or settings.height is not None:
+            raise HTTPException(status_code=400, detail="Both width and height must be provided together")
         
-        # Restart with new resolution
+        if settings.fps is not None:
+            config.stream_fps = settings.fps
+            changes.append(f"FPS to {settings.fps}")
+            
+        if settings.bitrate is not None:
+            config.h264_bitrate = settings.bitrate
+            changes.append(f"bitrate to {settings.bitrate//1000000}Mbps")
+        
+        if not changes:
+            raise HTTPException(status_code=400, detail="No settings provided to update")
+        
+        # Restart with new settings
         camera.start_h264_streaming()
         
         return {
-            "message": f"Resolution updated to {width}x{height}",
+            "message": f"Updated {', '.join(changes)}",
+            "current_settings": {
+                "resolution": f"{config.stream_width}x{config.stream_height}",
+                "fps": config.stream_fps,
+                "bitrate_mbps": config.h264_bitrate // 1000000
+            },
             "restart_required": False
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update resolution: {str(e)}")
-
-
-@app.post("/api/camera/controls/bitrate")
-async def update_bitrate(bitrate: int):
-    """Update H.264 bitrate on-demand (picamera2 advantage!)"""
-    if not camera or not camera.is_available():
-        raise HTTPException(status_code=503, detail="Camera not available")
-    
-    try:
-        camera.stop_h264_streaming()
-        config.h264_bitrate = bitrate
-        camera.start_h264_streaming()
-        
-        return {
-            "message": f"Bitrate updated to {bitrate//1000000}Mbps",
-            "restart_required": False
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update bitrate: {str(e)}")
-
-
-@app.post("/api/camera/controls/fps")
-async def update_fps(fps: int):
-    """Update camera FPS on-demand (picamera2 advantage!)"""
-    if not camera or not camera.is_available():
-        raise HTTPException(status_code=503, detail="Camera not available")
-    
-    try:
-        # Stop current streaming
-        camera.stop_h264_streaming()
-        
-        # Update config
-        config.stream_fps = fps
-        
-        # Restart with new FPS
-        camera.start_h264_streaming()
-        
-        return {
-            "message": f"FPS updated to {fps}fps",
-            "restart_required": False
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update FPS: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update camera settings: {str(e)}")
 
 
 if __name__ == "__main__":
