@@ -305,9 +305,10 @@ async def mediamtx_webrtc_proxy(request: Request):
 
 
 @app.get("/api/mediamtx/hls")
-async def mediamtx_hls_proxy():
+@app.get("/api/mediamtx/hls/{path:path}")
+async def mediamtx_hls_proxy(path: str = "index.m3u8"):
     """Proxy HLS requests to MediaMTX for domain compatibility."""
-    target_url = f"http://localhost:{config.mediamtx_hls_port}/cam/index.m3u8"
+    target_url = f"http://localhost:{config.mediamtx_hls_port}/cam/{path}"
     
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(target_url, follow_redirects=True)

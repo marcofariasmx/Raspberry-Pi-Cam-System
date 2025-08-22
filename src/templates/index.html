@@ -239,7 +239,7 @@
             try {
                 console.log('🔗 Trying WebRTC...');
                 
-                // Create RTCPeerConnection
+                // Create RTCPeerConnection with proper ICE configuration
                 webrtcConnection = new RTCPeerConnection({
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
@@ -250,6 +250,9 @@
                     webrtcStream.srcObject = event.streams[0];
                     showStream('webrtc');
                 };
+                
+                // Add a transceiver to receive video
+                webrtcConnection.addTransceiver('video', { direction: 'recvonly' });
                 
                 // Create offer and connect to MediaMTX WHEP endpoint
                 const offer = await webrtcConnection.createOffer();
