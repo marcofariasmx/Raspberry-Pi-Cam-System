@@ -331,7 +331,7 @@ class Camera:
                 self.h264_output = FfmpegOutput(f"-f rtp {udp_url}")
                 
                 # Start recording with H.264 encoder
-                self.camera.start_recording(encoder, self.h264_output, name="h264")
+                self.camera.start_recording(encoder, self.h264_output)
                 self.h264_streaming = True
                 
                 print(f"🎬 H.264 streaming started to MediaMTX (UDP:{self.config.mediamtx_udp_port})")
@@ -358,7 +358,7 @@ class Camera:
             
             try:
                 if PICAMERA2_AVAILABLE and self.camera:
-                    self.camera.stop_recording("h264")
+                    self.camera.stop_recording()
                 self.h264_streaming = False
                 self.h264_output = None
                 print("🛑 H.264 streaming stopped")
