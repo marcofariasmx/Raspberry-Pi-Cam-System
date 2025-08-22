@@ -72,10 +72,12 @@ hls: yes
 hlsAddress: :8888
 hlsEncryption: no
 hlsAllowOrigin: "*"
+hlsAlwaysRemux: no
 hlsVariant: lowLatency
-hlsSegmentCount: 3
+hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
 
 # RTSP settings
 rtsp: yes
@@ -87,11 +89,12 @@ rtspEncryption: "no"
 paths:
   cam:
     source: rpiCamera
-    sourceOnDemand: yes
+    sourceOnDemand: no
     rpiCameraWidth: 1200
     rpiCameraHeight: 900
     rpiCameraFPS: 15
     rpiCameraBitrate: 1000000
+    rpiCameraH264Profile: main
     record: no
 EOF
 
