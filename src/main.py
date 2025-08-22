@@ -403,6 +403,30 @@ async def update_bitrate(bitrate: int):
         raise HTTPException(status_code=500, detail=f"Failed to update bitrate: {str(e)}")
 
 
+@app.post("/api/camera/controls/fps")
+async def update_fps(fps: int):
+    """Update camera FPS on-demand (picamera2 advantage!)"""
+    if not camera or not camera.is_available():
+        raise HTTPException(status_code=503, detail="Camera not available")
+    
+    try:
+        # Stop current streaming
+        camera.stop_h264_streaming()
+        
+        # Update config
+        config.stream_fps = fps
+        
+        # Restart with new FPS
+        camera.start_h264_streaming()
+        
+        return {
+            "message": f"FPS updated to {fps}fps",
+            "restart_required": False
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update FPS: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

@@ -323,11 +323,24 @@ class Camera:
                 return False
             
             try:
+                # Reconfigure camera with current FPS setting
+                video_config = self.camera.create_video_configuration(
+                    main={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
+                    controls={
+                        "FrameRate": self.config.stream_fps,
+                        "AeEnable": True,
+                        "AwbEnable": True
+                    }
+                )
+                self.camera.configure(video_config)
+                
                 # Create H.264 encoder with proper configuration for MediaMTX
+                # Adjust keyframe interval based on FPS (every 2 seconds)
+                keyframe_interval = self.config.stream_fps * 2
                 encoder = H264Encoder(
                     bitrate=self.config.h264_bitrate,
                     repeat=True,     # Repeat SPS/PPS headers for stream robustness
-                    iperiod=30       # Insert keyframes every 30 frames (2 seconds at 15fps)
+                    iperiod=keyframe_interval  # Insert keyframes every 2 seconds
                 )
                 
                 # Create FFmpeg output to publish H.264 directly to MediaMTX via RTSP
@@ -339,6 +352,7 @@ class Camera:
                 self.h264_streaming = True
                 
                 print(f"🎬 H.264 streaming started to MediaMTX (RTSP:8554/cam)")
+                print(f"   Resolution: {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps")
                 print(f"   Bitrate: {self.config.h264_bitrate//1000000}Mbps")
                 return True
                 
