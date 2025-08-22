@@ -66,16 +66,24 @@ async def startup_event():
     """
     Application startup event handler.
     
-    Since MediaMTX manages the camera directly, we just check MediaMTX availability
-    instead of initializing camera hardware directly.
+    Initializes picamera2 for full camera control while streaming to MediaMTX.
     """
     global camera
     
     print("🚀 Starting Pi Camera Streaming App...")
-    print("📹 Using MediaMTX for camera management (no direct camera initialization)")
+    print("📹 Using picamera2 with MediaMTX streaming integration")
     
-    # Set camera to None since MediaMTX handles it
-    camera = None
+    try:
+        # Initialize camera with optimized settings
+        camera = Camera(config)
+        if camera.is_available():
+            print("✅ Camera initialized and ready for streaming")
+        else:
+            print("⚠️  Camera not available - check hardware connection")
+    except Exception as e:
+        print(f"❌ Camera initialization failed: {e}")
+        print("💡 If MediaMTX is using camera, restart it first")
+        camera = None
     
     print(f"🌐 Server starting on {config.host}:{config.port}")
 
@@ -198,31 +206,31 @@ async def get_camera_metrics():
 @app.get("/api/camera/stream")
 async def video_stream():
     """
-    H.264 video streaming endpoint via MediaMTX.
+    Start H.264 streaming from picamera2 to MediaMTX.
     
-    MediaMTX manages the camera directly via rpiCamera source.
-    This endpoint just returns information about available stream protocols.
+    Uses optimized H.264 encoding with hardware acceleration,
+    streaming via UDP to MediaMTX for WebRTC/HLS distribution.
     
     Returns:
         dict: Stream information with available protocols
-    """
-    # Check if MediaMTX camera is available via API
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get("http://localhost:9997/v3/paths/list")
-            paths = response.json()
-            
-            # Find cam path and check if ready
-            cam_ready = False
-            for item in paths.get("items", []):
-                if item["name"] == "cam" and item["ready"]:
-                    cam_ready = True
-                    break
-            
-            if not cam_ready:
-                raise HTTPException(status_code=503, detail="MediaMTX camera not ready")
         
-        print("🎬 MediaMTX camera stream available")
+    Raises:
+        HTTPException: If camera is not available or streaming fails to start
+    """
+    if not camera:
+        raise HTTPException(status_code=503, detail="Camera not available")
+    
+    if not camera.is_available():
+        raise HTTPException(status_code=503, detail="Camera hardware not detected")
+    
+    try:
+        # Start optimized H.264 streaming to MediaMTX
+        print("🎬 Starting picamera2 H.264 streaming to MediaMTX...")
+        if not camera.start_h264_streaming():
+            print("❌ Failed to start H.264 streaming")
+            raise HTTPException(status_code=500, detail="Failed to start H.264 streaming to MediaMTX")
+        
+        print("✅ H.264 streaming started successfully")
         
         # Return information about available streams
         return {
@@ -232,11 +240,9 @@ async def video_stream():
                 "hls": f"/api/mediamtx/hls",
                 "rtsp": f"rtsp://{config.host}:8554/cam"
             },
-            "message": "H.264 streaming available via MediaMTX rpiCamera source"
+            "message": "H.264 streaming active: picamera2 → MediaMTX → WebRTC/HLS"
         }
         
-    except httpx.RequestError:
-        raise HTTPException(status_code=503, detail="MediaMTX not available")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Streaming error: {str(e)}")
 
@@ -244,41 +250,34 @@ async def video_stream():
 @app.get("/api/camera/stream/info")
 async def stream_info():
     """
-    Get information about available H.264 streaming endpoints via MediaMTX.
+    Get information about picamera2 streaming status and available endpoints.
     
     Returns:
         dict: Stream information including available protocols and URLs
     """
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get("http://localhost:9997/v3/paths/list")
-            paths = response.json()
-            
-            # Find cam path and check if ready
-            cam_ready = False
-            for item in paths.get("items", []):
-                if item["name"] == "cam":
-                    cam_ready = item["ready"]
-                    break
-        
-        return {
-            "camera_available": cam_ready,
-            "streaming_mode": "h264",
-            "streams": {
-                "h264": {
-                    "webrtc": f"/api/mediamtx/webrtc",
-                    "hls": f"/api/mediamtx/hls", 
-                    "rtsp": f"rtsp://{config.host}:8554/cam"
-                }
-            } if cam_ready else {}
-        }
-        
-    except httpx.RequestError:
+    if not camera or not camera.is_available():
         return {
             "camera_available": False,
             "streams": {},
-            "message": "MediaMTX not available"
+            "message": "Camera not available"
         }
+    
+    # Check if H.264 streaming is active
+    h264_active = camera.is_h264_streaming() if hasattr(camera, 'is_h264_streaming') else False
+    
+    return {
+        "camera_available": True,
+        "h264_streaming": h264_active,
+        "streaming_mode": "h264",
+        "streams": {
+            "h264": {
+                "webrtc": f"/api/mediamtx/webrtc",
+                "hls": f"/api/mediamtx/hls", 
+                "rtsp": f"rtsp://{config.host}:8554/cam"
+            }
+        } if h264_active else {},
+        "message": "picamera2 → MediaMTX → WebRTC/HLS pipeline"
+    }
 
 
 @app.api_route("/api/mediamtx/webrtc", methods=["GET", "POST", "PATCH", "DELETE"])
@@ -317,6 +316,50 @@ async def mediamtx_hls_proxy(path: str = "index.m3u8"):
             status_code=response.status_code,
             headers=dict(response.headers)
         )
+
+
+@app.post("/api/camera/controls/resolution")
+async def update_resolution(width: int, height: int):
+    """Update camera resolution on-demand (picamera2 advantage!)"""
+    if not camera or not camera.is_available():
+        raise HTTPException(status_code=503, detail="Camera not available")
+    
+    try:
+        # Stop current streaming
+        camera.stop_h264_streaming()
+        
+        # Update config
+        config.stream_width = width
+        config.stream_height = height
+        
+        # Restart with new resolution
+        camera.start_h264_streaming()
+        
+        return {
+            "message": f"Resolution updated to {width}x{height}",
+            "restart_required": False
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update resolution: {str(e)}")
+
+
+@app.post("/api/camera/controls/bitrate")
+async def update_bitrate(bitrate: int):
+    """Update H.264 bitrate on-demand (picamera2 advantage!)"""
+    if not camera or not camera.is_available():
+        raise HTTPException(status_code=503, detail="Camera not available")
+    
+    try:
+        camera.stop_h264_streaming()
+        config.h264_bitrate = bitrate
+        camera.start_h264_streaming()
+        
+        return {
+            "message": f"Bitrate updated to {bitrate//1000000}Mbps",
+            "restart_required": False
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update bitrate: {str(e)}")
 
 
 if __name__ == "__main__":
