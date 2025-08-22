@@ -191,6 +191,29 @@ class Camera:
             # Use lores stream for desired output resolution
             return (native_width, native_height), True
     
+    def _configure_camera(self):
+        """
+        Single point of camera configuration with all current settings.
+        
+        Configures the camera with current resolution, FPS, and transforms.
+        This method is called during initialization and when settings change.
+        """
+        video_config = self.camera.create_video_configuration(
+            main={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
+            controls={
+                "FrameRate": self.config.stream_fps,
+                "AeEnable": True,
+                "AwbEnable": True
+            },
+            transform=Transform(
+                hflip=self.config.camera_hflip,
+                vflip=self.config.camera_vflip
+            )
+        )
+        
+        self.camera.configure(video_config)
+        print(f"📷 Camera configured: {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps, HFLIP={self.config.camera_hflip}, VFLIP={self.config.camera_vflip}")
+    
     def _log_crop_info(self):
         """Log camera crop and configuration information for debugging."""
         try:
@@ -252,40 +275,9 @@ class Camera:
             if use_lores:
                 print(f"⚠️  Would benefit from main+lores to avoid cropping, but using single stream for memory efficiency")
             
-            stream_config = self.camera.create_video_configuration(
-                main={"size": (self.config.stream_width, self.config.stream_height)},
-                controls={
-                    "FrameRate": self.config.stream_fps
-                }
-            )
+            # Configure camera once with H.264-ready settings
+            self._configure_camera()
             self._use_lores_stream = False
-            
-            # Apply camera transforms if configured
-            if self.config.camera_hflip or self.config.camera_vflip:
-                stream_config["transform"] = Transform(
-                    hflip=self.config.camera_hflip,
-                    vflip=self.config.camera_vflip
-                )
-            
-            # Configure camera with our settings
-            self.camera.configure(stream_config)
-            
-            # Configure for H.264 encoding
-            video_config = self.camera.create_video_configuration(
-                main={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
-                controls={
-                    "FrameRate": self.config.stream_fps,
-                    "AeEnable": True,
-                    "AwbEnable": True
-                },
-                transform=Transform(
-                    hflip=self.config.camera_hflip,
-                    vflip=self.config.camera_vflip
-                )
-            )
-            
-            # Also configure for H.264
-            self.camera.configure(video_config)
             
             # Add crop debugging information
             self._log_crop_info()
@@ -323,20 +315,8 @@ class Camera:
                 return False
             
             try:
-                # Reconfigure camera with current settings including transforms
-                video_config = self.camera.create_video_configuration(
-                    main={"size": (self.config.stream_width, self.config.stream_height), "format": "YUV420"},
-                    controls={
-                        "FrameRate": self.config.stream_fps,
-                        "AeEnable": True,
-                        "AwbEnable": True
-                    },
-                    transform=Transform(
-                        hflip=self.config.camera_hflip,
-                        vflip=self.config.camera_vflip
-                    )
-                )
-                self.camera.configure(video_config)
+                # Reconfigure camera with current settings (single point of configuration)
+                self._configure_camera()
                 
                 # Create H.264 encoder with proper configuration for MediaMTX
                 # Adjust keyframe interval based on FPS (every 2 seconds)
