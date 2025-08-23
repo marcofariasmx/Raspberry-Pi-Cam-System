@@ -59,16 +59,16 @@ check_os_requirements() {
         fi
     fi
     
-    # Check Python version
+    # Check Python version (3.11.x recommended for Raspberry Pi OS Bookworm)
     local python_version
     python_version=$(python3 --version 2>&1 | awk '{print $2}')
     print_status "Python version: $python_version"
     
-    # Check if Python 3.9+ (minimum for modern features)
-    if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)"; then
-        print_success "Python version compatible"
+    # Check if Python 3.11+ (recommended for best libcamera/picamera2 compatibility on Bookworm)
+    if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"; then
+        print_success "Python version compatible (3.11+ optimal for Bookworm)"
     else
-        print_warning "Python 3.9+ recommended (found $python_version)"
+        print_warning "Python 3.11+ recommended for Bookworm compatibility (found $python_version)"
     fi
     
     # Check OS version
@@ -78,11 +78,11 @@ check_os_requirements() {
         print_status "OS: $os_info"
         
         if grep -q "bookworm" /etc/os-release; then
-            print_success "Raspberry Pi OS Bookworm detected (recommended)"
+            print_success "Raspberry Pi OS Bookworm detected (recommended with Python 3.11.x)"
         elif grep -q "bullseye" /etc/os-release; then
             print_success "Raspberry Pi OS Bullseye detected (compatible)"
         else
-            print_warning "OS version not specifically tested"
+            print_warning "OS version not specifically tested (Bookworm + Python 3.11 recommended)"
         fi
     fi
 }
@@ -137,22 +137,26 @@ install_system_dependencies() {
 
 # Function to verify camera
 verify_camera() {
-    print_status "Testing camera hardware..."
+    print_status "Testing camera hardware (optional - setup continues regardless)..."
     
-    if timeout 10 libcamera-hello -t 2000 --nopreview >/dev/null 2>&1; then
-        print_success "Camera hardware detected and working"
+    # Try rpicam-hello first (newer Bookworm), then fallback to libcamera-hello
+    if timeout 10 rpicam-hello -t 2000 --nopreview >/dev/null 2>&1; then
+        print_success "Camera hardware detected and working (rpicam-hello)"
+        return 0
+    elif timeout 10 libcamera-hello -t 2000 --nopreview >/dev/null 2>&1; then
+        print_success "Camera hardware detected and working (libcamera-hello)"
         return 0
     else
-        print_warning "Camera test failed or timed out"
-        print_status "This might be normal if camera is not connected yet"
-        print_status "You can continue and test camera functionality later"
+        print_warning "Camera test failed or timed out - continuing setup anyway"
+        print_status "Camera functionality can be tested after setup completes"
+        print_status "This does not affect MediaMTX, Python, or service installation"
         return 1
     fi
 }
 
 # Function to test Python camera imports
 test_python_camera() {
-    print_status "Testing Python camera libraries..."
+    print_status "Testing Python camera libraries (optional - setup continues regardless)..."
     
     if python3 -c "
 import sys
@@ -180,7 +184,8 @@ except Exception as e:
 "; then
         print_success "Python camera libraries working correctly"
     else
-        print_warning "Camera libraries test completed with warnings"
+        print_warning "Camera libraries test completed with warnings - continuing setup anyway"
+        print_status "Camera functionality can be tested after setup completes"
     fi
 }
 
@@ -227,6 +232,7 @@ setup_python_environment() {
     cd "$PROJECT_DIR"
     
     # Create virtual environment with system packages
+    # Using system Python 3.11.x for best libcamera/picamera2 compatibility on Bookworm
     python3 -m venv venv --system-site-packages
     
     # Activate virtual environment
@@ -240,6 +246,7 @@ setup_python_environment() {
     pip install -r requirements.txt
     
     # Link system camera modules for cross-version compatibility
+    # This ensures libcamera/picamera2 work properly with Python 3.11.x on Bookworm
     print_status "Configuring camera system integration..."
     local venv_packages=$(find "$PROJECT_DIR/venv/lib" -name "site-packages" -type d | head -1)
     local system_packages="/usr/lib/python3/dist-packages"
@@ -441,9 +448,9 @@ run_main_setup() {
     update_system
     install_system_dependencies
     
-    # Hardware verification
-    verify_camera
-    test_python_camera
+    # Hardware verification (optional - won't stop setup if camera unavailable)
+    verify_camera || true  # Continue even if camera test fails
+    test_python_camera || true  # Continue even if camera libraries test fails
     
     # Application setup
     setup_project_structure
