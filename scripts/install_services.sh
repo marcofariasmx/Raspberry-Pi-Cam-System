@@ -43,50 +43,6 @@ print_header() {
 ╚══════════════════════════════════════════════════════════════╝${NC}"
 }
 
-# Function to display current credentials
-display_current_credentials() {
-    print_status "Displaying current access credentials..."
-    
-    # Check if .env file exists
-    if [[ ! -f "$PROJECT_DIR/.env" ]]; then
-        print_warning "No .env file found. Please run setup script first."
-        return 1
-    fi
-    
-    # Extract credentials from .env file
-    local api_key
-    local web_password
-    
-    api_key=$(grep "^API_KEY=" "$PROJECT_DIR/.env" | cut -d'=' -f2 | tr -d '"')
-    web_password=$(grep "^WEB_PASSWORD=" "$PROJECT_DIR/.env" | cut -d'=' -f2 | tr -d '"')
-    
-    if [[ -z "$api_key" ]] || [[ -z "$web_password" ]]; then
-        print_warning "Credentials not found in .env file. Please run setup script first."
-        return 1
-    fi
-    
-    # Display credentials prominently
-    echo
-    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
-    echo -e "${PURPLE}🔑 CAMERA SYSTEM ACCESS CREDENTIALS${NC}"
-    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
-    echo
-    echo -e "${GREEN}📋 Your access credentials:${NC}"
-    echo
-    echo -e "   ${BLUE}🔑 API KEY:      ${NC}$api_key"
-    echo -e "   ${BLUE}🔒 WEB PASSWORD: ${NC}$web_password"
-    echo
-    echo -e "${YELLOW}💡 How to use these credentials:${NC}"
-    echo "   • WEB_PASSWORD: Login to the web interface at http://your-pi-ip:8003"
-    echo "   • API_KEY: For direct API access and automation"
-    echo
-    echo -e "${YELLOW}📝 Need to change credentials?${NC}"
-    echo "   • Edit the .env file in $PROJECT_DIR"
-    echo "   • Restart the service after changes"
-    echo
-    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
-    echo
-}
 
 # Function to check prerequisites
 check_prerequisites() {
@@ -567,9 +523,6 @@ install_services() {
     # Check prerequisites
     check_prerequisites
     
-    # Display credentials to user
-    display_current_credentials
-    
     # Create and configure services
     create_mediamtx_service
     create_camera_service
@@ -611,7 +564,6 @@ case "${1:-install}" in
         ;;
     "restart")
         print_status "Restarting camera service..."
-        display_current_credentials
         systemctl --user restart ${SERVICE_NAME}.service
         sleep 3
         show_service_status
@@ -624,7 +576,6 @@ case "${1:-install}" in
         ;;
     "start")
         print_status "Starting camera service..."
-        display_current_credentials
         start_camera_service
         test_camera_service
         ;;

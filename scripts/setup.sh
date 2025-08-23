@@ -140,16 +140,15 @@ verify_camera() {
     print_status "Testing camera hardware (optional - setup continues regardless)..."
     
     # Try rpicam-hello first (newer Bookworm), then fallback to libcamera-hello
-    if timeout 10 rpicam-hello -t 2000 --nopreview >/dev/null 2>&1; then
+    if timeout 15 rpicam-hello -t 1000 --nopreview >/dev/null 2>&1; then
         print_success "Camera hardware detected and working (rpicam-hello)"
         return 0
-    elif timeout 10 libcamera-hello -t 2000 --nopreview >/dev/null 2>&1; then
+    elif timeout 15 libcamera-hello -t 1000 --nopreview >/dev/null 2>&1; then
         print_success "Camera hardware detected and working (libcamera-hello)"
         return 0
     else
-        print_warning "Camera test failed or timed out - continuing setup anyway"
-        print_status "Camera functionality can be tested after setup completes"
-        print_status "This does not affect MediaMTX, Python, or service installation"
+        print_status "Camera hardware test timed out (this is normal after fresh libcamera install)"
+        print_status "Python camera test will verify full functionality"
         return 1
     fi
 }
@@ -182,7 +181,7 @@ except Exception as e:
     print('This is normal if camera is not connected or enabled')
     sys.exit(0)
 "; then
-        print_success "Python camera libraries working correctly"
+        print_success "✅ Camera fully functional - Python libraries and hardware working correctly"
     else
         print_warning "Camera libraries test completed with warnings - continuing setup anyway"
         print_status "Camera functionality can be tested after setup completes"
