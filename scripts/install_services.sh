@@ -119,9 +119,8 @@ create_camera_service() {
     cat > ~/.config/systemd/user/${SERVICE_NAME}.service << EOF
 [Unit]
 Description=Raspberry Pi Camera Web App (Tmux Session)
-After=network-online.target mediamtx.service
+After=network-online.target
 Wants=network-online.target
-Requires=mediamtx.service
 
 [Service]
 Type=oneshot
