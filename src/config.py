@@ -62,7 +62,7 @@ class Config:
     # H.264 streaming via MediaMTX
     h264_bitrate: int = 1000000  # 1 Mbps
     mediamtx_udp_port: int = 8891
-    mediamtx_webrtc_port: int = 8889
+    mediamtx_webrtc_port: int = 8443
     mediamtx_hls_port: int = 8888
     
     # Camera hardware settings
@@ -119,7 +119,7 @@ def get_config() -> Config:
         # H.264 MediaMTX settings
         h264_bitrate=int(os.getenv("H264_BITRATE", "1000000")),
         mediamtx_udp_port=int(os.getenv("MEDIAMTX_UDP_PORT", "8891")),
-        mediamtx_webrtc_port=int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8889")),
+        mediamtx_webrtc_port=int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8443")),
         mediamtx_hls_port=int(os.getenv("MEDIAMTX_HLS_PORT", "8888")),
         
         camera_hflip=os.getenv("CAMERA_HFLIP", "false").lower() == "true",

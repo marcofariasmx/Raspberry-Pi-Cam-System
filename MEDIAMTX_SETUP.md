@@ -63,7 +63,7 @@ The web interface will automatically detect the best streaming protocol:
 ## Streaming Endpoints
 
 ### MediaMTX Streams (H.264)
-- **WebRTC**: `http://your-pi:8889/cam/whep`
+- **WebRTC**: `http://your-pi:8443/cam/whep`
 - **HLS**: `http://your-pi:8888/cam/index.m3u8` 
 - **RTSP**: `rtsp://your-pi:8554/cam`
 
@@ -84,7 +84,7 @@ The web interface will automatically detect the best streaming protocol:
 | `STREAM_WIDTH` | `640` | Stream width in pixels |
 | `STREAM_HEIGHT` | `480` | Stream height in pixels |
 | `STREAM_FPS` | `15` | Target frames per second |
-| `MEDIAMTX_WEBRTC_PORT` | `8889` | MediaMTX WebRTC port |
+| `MEDIAMTX_WEBRTC_PORT` | `8443` | MediaMTX WebRTC port |
 | `MEDIAMTX_HLS_PORT` | `8888` | MediaMTX HLS port |
 | `MEDIAMTX_UDP_PORT` | `8890` | UDP port for camera → MediaMTX |
 
@@ -139,7 +139,7 @@ sudo ./mediamtx mediamtx.yml
 ### WebRTC Connection Issues
 
 1. **Check browser support**: Modern Chrome/Firefox required
-2. **Check ports**: Ensure ports 8889, 8888, 8890 are accessible
+2. **Check ports**: Ensure ports 8443, 8888, 8890 are accessible
 3. **Check firewall**: Allow MediaMTX ports through firewall
 4. **Check logs**: Browser console and MediaMTX logs
 
@@ -312,7 +312,7 @@ curl http://localhost:9998/metrics
 - 8000: Camera application (HTTP)
 - 8554: MediaMTX RTSP
 - 8888: MediaMTX HLS 
-- 8889: MediaMTX WebRTC
+- 8443: MediaMTX WebRTC
 - 8890: UDP stream (camera → MediaMTX)
 - 9997: MediaMTX API
 - 9998: MediaMTX metrics
@@ -323,7 +323,7 @@ curl http://localhost:9998/metrics
 # Allow camera streaming ports
 sudo ufw allow 8000/tcp   # Camera app
 sudo ufw allow 8888/tcp   # HLS
-sudo ufw allow 8889/tcp   # WebRTC
+sudo ufw allow 8443/tcp   # WebRTC
 sudo ufw allow 8554/tcp   # RTSP
 
 # Block external access to internal ports

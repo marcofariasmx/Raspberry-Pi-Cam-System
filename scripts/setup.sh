@@ -378,7 +378,7 @@ metricsAddress: 127.0.0.1:9998
 
 # WebRTC settings
 webrtc: yes
-webrtcAddress: :8889
+webrtcAddress: :8443
 webrtcEncryption: no
 webrtcAllowOrigin: "*"
 
