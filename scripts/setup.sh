@@ -59,13 +59,13 @@ check_os_requirements() {
         fi
     fi
     
-    # Check Python version (use your compiled version)
+    # Check Python version
     local python_version
-    python_version=$(python --version 2>&1 | awk '{print $2}')
+    python_version=$(python3 --version 2>&1 | awk '{print $2}')
     print_status "Python version: $python_version"
     
     # Check if Python 3.9+ (minimum for modern features)
-    if python -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)"; then
+    if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)"; then
         print_success "Python version compatible"
     else
         print_warning "Python 3.9+ recommended (found $python_version)"
@@ -154,7 +154,7 @@ verify_camera() {
 test_python_camera() {
     print_status "Testing Python camera libraries..."
     
-    if python -c "
+    if python3 -c "
 import sys
 try:
     from picamera2 import Picamera2
@@ -226,8 +226,8 @@ setup_python_environment() {
     # Ensure we're in the right directory
     cd "$PROJECT_DIR"
     
-    # Create virtual environment with system packages (use your compiled Python)
-    python -m venv venv --system-site-packages
+    # Create virtual environment with system packages
+    python3 -m venv venv --system-site-packages
     
     # Activate virtual environment
     source venv/bin/activate
@@ -266,7 +266,7 @@ setup_python_environment() {
     
     # Verify installation
     print_status "Verifying Python installation..."
-    python -c "
+    python3 -c "
 import fastapi
 try:
     import libcamera
@@ -417,7 +417,7 @@ test_application() {
     source venv/bin/activate
     
     # Test application configuration
-    python -c "from src.config import get_config; get_config()" 2>/dev/null || {
+    python3 -c "from src.config import get_config; get_config()" 2>/dev/null || {
         print_warning "Application configuration test failed"
         return 1
     }
@@ -460,7 +460,7 @@ run_main_setup() {
     print_status "Next steps:"
     print_status "1. Install services: $PROJECT_DIR/scripts/install_services.sh"
     print_status "2. Configure Cloudflare tunnel (see docs/DEPLOYMENT.md)"
-    print_status "3. Test the application: cd $PROJECT_DIR && source venv/bin/activate && python src/main.py"
+    print_status "3. Test the application: cd $PROJECT_DIR && source venv/bin/activate && python3 src/main.py"
     echo
     print_status "🔄 To update code in future:"
     print_status "   git pull                                    # Get latest code"
@@ -504,9 +504,9 @@ show_status() {
     if [[ -f "src/main.py" ]] && [[ -d "venv" ]]; then
         print_status "Testing application..."
         source venv/bin/activate 2>/dev/null || true
-        if python -c "from src.config import get_config; print('✅ Application ready')" 2>/dev/null; then
+        if python3 -c "from src.config import get_config; print('✅ Application ready')" 2>/dev/null; then
             print_success "✅ Application is ready to run"
-            print_status "Start with: cd $PROJECT_DIR && source venv/bin/activate && python src/main.py"
+            print_status "Start with: cd $PROJECT_DIR && source venv/bin/activate && python3 src/main.py"
         else
             print_warning "❌ Application needs configuration"
         fi
