@@ -68,10 +68,17 @@ templates = Jinja2Templates(directory="src/templates")
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
+        self.use_tornado = False  # Flag to enable high-performance Tornado WebSocket
     
     @property
     def connection_count(self) -> int:
         """Get current connection count for health endpoint compatibility."""
+        if self.use_tornado:
+            try:
+                from src.tornado_websocket import get_client_count
+                return get_client_count()
+            except ImportError:
+                return 0
         return len(self.active_connections)
     
     async def connect(self, websocket: WebSocket):
@@ -559,6 +566,28 @@ async def update_camera_settings(settings: CameraSettings):
 
 if __name__ == "__main__":
     import uvicorn
+    import os
+    
+    # Check if we should use high-performance Tornado WebSocket
+    USE_TORNADO = os.getenv("USE_TORNADO", "true").lower() == "true"
+    
+    if USE_TORNADO:
+        print("🚀 Starting with high-performance Tornado WebSocket server...")
+        try:
+            from src.tornado_websocket import start_tornado_server
+            tornado_port = int(os.getenv("TORNADO_PORT", "8001"))
+            
+            if start_tornado_server(tornado_port):
+                manager.use_tornado = True
+                print(f"✅ Tornado WebSocket server started on port {tornado_port}")
+                print(f"🌐 WebSocket endpoint: ws://localhost:{tornado_port}/ws")
+            else:
+                print("❌ Failed to start Tornado server, falling back to FastAPI WebSocket")
+        except ImportError as e:
+            print(f"⚠️ Tornado not available: {e}")
+            print("💡 Install tornado: pip install tornado")
+    else:
+        print("📡 Using FastAPI WebSocket (set USE_TORNADO=true for better performance)")
     
     # TCP optimizations for low-latency streaming
     uvicorn_config = uvicorn.Config(

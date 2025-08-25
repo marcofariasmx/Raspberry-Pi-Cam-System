@@ -188,16 +188,21 @@
             
             connect() {
                 try {
-                    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
-                    console.log('🔌 Connecting to:', wsUrl);
+                    // Try Tornado WebSocket first (port 8001), fallback to FastAPI
+                    const tornadoWsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8001/ws`;
+                    const fastApiWsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
                     
-                    this.websocket = new WebSocket(wsUrl);
+                    console.log('🔌 Trying Tornado WebSocket:', tornadoWsUrl);
+                    
+                    this.websocket = new WebSocket(tornadoWsUrl);
                     this.websocket.binaryType = 'arraybuffer';
+                    this.usingTornado = true;
                     
                     this.websocket.onopen = () => {
-                        console.log('🟢 WebSocket connected');
+                        const serverType = this.usingTornado ? 'Tornado' : 'FastAPI';
+                        console.log(`🟢 ${serverType} WebSocket connected`);
                         this.connected = true;
-                        this.updateStatus('connected', '🟢 Connected');
+                        this.updateStatus('connected', `🟢 Connected (${serverType})`);
                         this.updateMetrics();
                     };
                     
@@ -207,7 +212,14 @@
                     
                     this.websocket.onerror = (error) => {
                         console.error('❌ WebSocket error:', error);
-                        this.updateStatus('error', 'Connection error');
+                        
+                        // If Tornado failed, try FastAPI fallback
+                        if (this.usingTornado) {
+                            console.log('🔄 Tornado failed, trying FastAPI fallback...');
+                            this.connectFallback(fastApiWsUrl);
+                        } else {
+                            this.updateStatus('error', 'Connection error');
+                        }
                     };
                     
                     this.websocket.onclose = (event) => {
@@ -227,6 +239,42 @@
                 } catch (error) {
                     console.error('❌ Connection failed:', error);
                     this.updateStatus('error', 'Connection failed');
+                }
+            }
+            
+            connectFallback(fallbackUrl) {
+                try {
+                    console.log('🔌 Connecting to FastAPI fallback:', fallbackUrl);
+                    
+                    this.websocket = new WebSocket(fallbackUrl);
+                    this.websocket.binaryType = 'arraybuffer';
+                    this.usingTornado = false;
+                    
+                    this.websocket.onopen = () => {
+                        console.log('🟢 FastAPI WebSocket connected (fallback)');
+                        this.connected = true;
+                        this.updateStatus('connected', '🟢 Connected (FastAPI)');
+                        this.updateMetrics();
+                    };
+                    
+                    this.websocket.onmessage = (event) => {
+                        this.handleData(event.data);
+                    };
+                    
+                    this.websocket.onerror = (error) => {
+                        console.error('❌ FastAPI WebSocket error:', error);
+                        this.updateStatus('error', 'Both servers failed');
+                    };
+                    
+                    this.websocket.onclose = (event) => {
+                        console.log('🔴 FastAPI WebSocket closed:', event.reason);
+                        this.connected = false;
+                        this.updateStatus('error', 'Connection closed');
+                    };
+                    
+                } catch (error) {
+                    console.error('❌ Fallback connection failed:', error);
+                    this.updateStatus('error', 'All connections failed');
                 }
             }
             

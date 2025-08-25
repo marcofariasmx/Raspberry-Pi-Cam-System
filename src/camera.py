@@ -82,18 +82,25 @@ class StreamingOutput(io.BufferedIOBase):
         with self.condition:
             self.condition.notify_all()
         
-        if self.websocket_manager and buf and self.loop:
+        if self.websocket_manager and buf:
             try:
-                # Check if WebSocket can handle the data rate (prevent TCP buffer overflow)
-                if hasattr(self.websocket_manager, 'active_connections') and self.websocket_manager.active_connections > 0:
-                    # Send raw H.264 data in Annex B format directly
-                    # Properly handle the Future to prevent memory leaks
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.websocket_manager.broadcast_binary(buf), 
-                        self.loop
-                    )
-                    # Don't wait for result, but ensure we don't leak futures
-                    future.add_done_callback(lambda f: f.exception())
+                # Check if we should use Tornado or FastAPI WebSocket
+                if hasattr(self.websocket_manager, 'use_tornado') and self.websocket_manager.use_tornado:
+                    # Use high-performance Tornado WebSocket
+                    from src.tornado_websocket import broadcast_h264_frame, is_streaming_active
+                    if is_streaming_active():
+                        broadcast_h264_frame(buf)
+                else:
+                    # Use FastAPI WebSocket (original implementation)
+                    if self.loop and hasattr(self.websocket_manager, 'active_connections') and len(self.websocket_manager.active_connections) > 0:
+                        # Send raw H.264 data in Annex B format directly
+                        # Properly handle the Future to prevent memory leaks
+                        future = asyncio.run_coroutine_threadsafe(
+                            self.websocket_manager.broadcast_binary(buf), 
+                            self.loop
+                        )
+                        # Don't wait for result, but ensure we don't leak futures
+                        future.add_done_callback(lambda f: f.exception())
                 
                 self.frame_count += 1
                     
