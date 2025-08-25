@@ -115,7 +115,7 @@ def get_config() -> Config:
         stream_fps=int(os.getenv("VIDEO_FRAMERATE", "30")),
         
         # WebCodecs H.264 WebSocket settings
-        h264_bitrate=int(os.getenv("VIDEO_BITRATE", "2000000")),
+        h264_bitrate=int(os.getenv("VIDEO_BITRATE", "1000000")),
         websocket_buffer_size=int(os.getenv("WEBSOCKET_BUFFER_SIZE", "5")),
         max_concurrent_viewers=int(os.getenv("MAX_CONCURRENT_VIEWERS", "10")),
         
