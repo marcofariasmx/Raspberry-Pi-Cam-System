@@ -250,6 +250,7 @@
                 this.frameCount = 0;
                 this.spsData = null;
                 this.ppsData = null;
+                this.timestamp = 0;
             }
 
             async initialize() {
@@ -463,17 +464,21 @@
                     const latency = now - lastFrameTime;
                     lastFrameTime = now;
 
-                    // Create EncodedVideoChunk from Annex B data
-                    // Let WebCodecs handle NAL unit parsing
+                    // Simple incremental timestamps
+                    // Just increment by 1000 microseconds per frame
+                    // WebCodecs will handle the actual playback timing
+                    this.timestamp += 1000;
+
+                    // Create EncodedVideoChunk
                     const chunk = new EncodedVideoChunk({
                         type: this.isKeyFrame(data) ? 'key' : 'delta',
-                        timestamp: this.frameCount * 33333, // microseconds (30fps)
+                        timestamp: this.timestamp,
                         data: data
                     });
                     
                     this.frameCount++;
 
-                    // Decode immediately for minimal latency
+                    // Just decode it
                     this.decoder.decode(chunk);
 
                     // Update metrics
@@ -509,7 +514,8 @@
                         this.canvas.height = frame.displayHeight;
                     }
 
-                    // Draw frame to canvas
+                    // Draw frame immediately for low latency
+                    // WebCodecs decoder already handles timing
                     this.ctx.drawImage(frame, 0, 0);
                     frame.close();
 
