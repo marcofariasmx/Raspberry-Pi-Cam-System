@@ -112,7 +112,7 @@ def get_config() -> Config:
         port=int(os.getenv("WEBSOCKET_PORT", os.getenv("CAMERA_PORT", "8000"))),
         stream_width=int(os.getenv("VIDEO_WIDTH", "1200")),
         stream_height=int(os.getenv("VIDEO_HEIGHT", "900")),
-        stream_fps=int(os.getenv("VIDEO_FRAMERATE", "30")),
+        stream_fps=int(os.getenv("VIDEO_FRAMERATE", "20")),
         
         # WebCodecs H.264 WebSocket settings
         h264_bitrate=int(os.getenv("VIDEO_BITRATE", "1000000")),

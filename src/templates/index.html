@@ -142,9 +142,27 @@
                 this.lastDataTime = performance.now();
                 this.bytesReceived = 0;
                 this.connected = false;
+                this.serverFps = 20; // Default, will be updated
                 
-                // Initialize jMuxer
-                this.initializeJMuxer();
+                // Get server configuration first, then initialize
+                this.getServerConfig();
+            }
+            
+            async getServerConfig() {
+                try {
+                    const response = await fetch('/health');
+                    const config = await response.json();
+                    
+                    this.serverFps = config.fps || 20;
+                    console.log(`📊 Server FPS detected: ${this.serverFps}`);
+                    
+                    // Initialize jMuxer with correct FPS
+                    this.initializeJMuxer();
+                    
+                } catch (error) {
+                    console.warn('⚠️ Could not fetch server config, using defaults:', error);
+                    this.initializeJMuxer();
+                }
             }
             
             initializeJMuxer() {
@@ -152,8 +170,11 @@
                     this.jmuxer = new JMuxer({
                         node: this.videoElement,
                         mode: 'video', // video only
-                        fps: 20, // Expected FPS
-                        debug: false
+                        fps: this.serverFps, // Use server's actual FPS  
+                        debug: false,
+                        flushingTime: 0, // Immediate buffer flushing (proven solution)
+                        clearBuffer: true, // Auto-clear played buffer
+                        maxDelay: 1000 // Drop frames if buffer exceeds 1 second
                     });
                     
                     console.log('✅ jMuxer initialized successfully');
@@ -275,7 +296,7 @@
                         `📐 ${this.videoElement.videoWidth}×${this.videoElement.videoHeight}`;
                 }
                 
-                // Buffer health (approximation based on video element)
+                // Buffer health with enhanced monitoring
                 const bufferHealthEl = document.getElementById('bufferHealth');
                 try {
                     if (this.videoElement.buffered.length > 0) {
@@ -284,6 +305,11 @@
                         const bufferSize = bufferedEnd - currentTime;
                         
                         bufferHealthEl.textContent = `🔋 Buffer: ${bufferSize.toFixed(2)}s`;
+                        
+                        // Log buffer status for monitoring
+                        if (bufferSize > 3.0) {
+                            console.warn(`⚠️ Buffer growing: ${bufferSize.toFixed(2)}s - jMuxer should handle this`);
+                        }
                         
                         if (bufferSize < 0.5) {
                             bufferHealthEl.className = 'metric warning';
@@ -343,12 +369,32 @@
             }
         });
         
-        // Handle visibility changes (pause when tab is hidden to save resources)
+        // Handle visibility changes with live streaming optimization
         document.addEventListener('visibilitychange', () => {
             if (player && player.videoElement) {
                 if (document.hidden) {
+                    console.log('📱 Tab hidden - pausing video');
                     player.videoElement.pause();
                 } else {
+                    console.log('📱 Tab visible - resuming and jumping to live');
+                    
+                    // Jump to live position to prevent accumulated delay
+                    try {
+                        if (player.videoElement.buffered.length > 0) {
+                            const bufferedEnd = player.videoElement.buffered.end(player.videoElement.buffered.length - 1);
+                            const currentTime = player.videoElement.currentTime;
+                            const bufferSize = bufferedEnd - currentTime;
+                            
+                            // If buffer has grown while tab was hidden, jump to live
+                            if (bufferSize > 2.0) {
+                                console.log(`🔄 Jumping to live: buffer was ${bufferSize.toFixed(2)}s behind`);
+                                player.videoElement.currentTime = bufferedEnd - 0.5; // Stay 0.5s behind live
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('Could not jump to live position:', error);
+                    }
+                    
                     player.videoElement.play();
                 }
             }
