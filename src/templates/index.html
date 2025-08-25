@@ -333,7 +333,7 @@
             }
 
 
-            extractAndConfigure(data) {
+            async extractAndConfigure(data) {
                 try {
                     // Wait for first keyframe before configuring decoder
                     if (this.waitingForKeyframe && !this.isKeyFrame(data)) {
