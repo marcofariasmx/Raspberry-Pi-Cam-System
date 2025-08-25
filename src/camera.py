@@ -366,13 +366,19 @@ class Camera:
                 # Reconfigure camera with current settings
                 self._configure_camera()
                 
-                # Create H.264 encoder with SPS/PPS repetition for WebCodecs
-                # Use actual configured FPS for IDR frame interval
-                idr_interval = max(self.config.stream_fps // 2, 10)  # IDR every 0.5 seconds, min 10 frames
+                # Create ultra-low latency H.264 encoder
+                # Key settings for minimal latency:
+                # - Very short IDR intervals (every 0.2s)
+                # - No B-frames (causes reordering delays)
+                # - Baseline profile (1-in-1-out decoding)
+                idr_interval = max(self.config.stream_fps // 5, 6)  # IDR every 0.2 seconds
                 encoder = H264Encoder(
                     bitrate=self.config.h264_bitrate,
                     repeat=True,  # Repeat SPS/PPS before every IDR frame
-                    iperiod=idr_interval  # IDR frames based on actual FPS
+                    iperiod=idr_interval,  # Very frequent keyframes
+                    profile='baseline',  # Baseline profile for low latency
+                    level='3.1',  # Compatible level
+                    quality='high'  # But prioritize speed over compression
                 )
                 
                 # Create streaming output with event loop and wrap with FileOutput

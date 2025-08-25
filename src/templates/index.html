@@ -421,7 +421,7 @@
                         codec: codecString,
                         description: description,
                         optimizeForLatency: true,
-                        hardwareAcceleration: 'prefer-hardware'
+                        hardwareAcceleration: 'prefer-software'  // Software decode for better latency
                     });
                     
                     this.decoderConfigured = true;
@@ -435,11 +435,11 @@
             
             async configureBasic() {
                 try {
-                    // Fallback to basic configuration
+                    // Fallback to basic low-latency configuration
                     await this.decoder.configure({
                         codec: 'avc1.42001f',  // H.264 Baseline Profile Level 3.1
                         optimizeForLatency: true,
-                        hardwareAcceleration: 'prefer-hardware'
+                        hardwareAcceleration: 'prefer-software'  // Software decode for better latency
                     });
                     
                     this.decoderConfigured = true;
@@ -469,8 +469,9 @@
                         console.log(`📊 Frame ${this.frameCount}, queue: ${this.decoder.decodeQueueSize}, interval: ${latency}ms`);
                     }
 
-                    // Simple incremental timestamps
-                    this.timestamp += 50000; // 50ms intervals (20fps)
+                    // Use performance.now() for real-time timestamps
+                    // This prevents buffering and ensures immediate playback
+                    this.timestamp = Math.floor(performance.now() * 1000); // Current time in microseconds
 
                     // Create EncodedVideoChunk
                     const chunk = new EncodedVideoChunk({
