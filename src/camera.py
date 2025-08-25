@@ -367,18 +367,13 @@ class Camera:
                 self._configure_camera()
                 
                 # Create ultra-low latency H.264 encoder
-                # Key settings for minimal latency:
-                # - Very short IDR intervals (every 0.2s)
-                # - No B-frames (causes reordering delays)
-                # - Baseline profile (1-in-1-out decoding)
+                # picamera2 H264Encoder supported parameters: bitrate, repeat, iperiod
+                # Hardware encoder defaults to baseline profile automatically for low latency
                 idr_interval = max(self.config.stream_fps // 5, 6)  # IDR every 0.2 seconds
                 encoder = H264Encoder(
                     bitrate=self.config.h264_bitrate,
-                    repeat=True,  # Repeat SPS/PPS before every IDR frame
-                    iperiod=idr_interval,  # Very frequent keyframes
-                    profile='baseline',  # Baseline profile for low latency
-                    level='3.1',  # Compatible level
-                    quality='high'  # But prioritize speed over compression
+                    repeat=True,  # Repeat SPS/PPS before every IDR frame  
+                    iperiod=idr_interval  # Very frequent keyframes for low latency
                 )
                 
                 # Create streaming output with event loop and wrap with FileOutput
