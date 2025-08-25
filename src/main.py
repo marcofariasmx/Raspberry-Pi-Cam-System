@@ -247,16 +247,16 @@ async def home(request: Request):
 
 
 @app.websocket("/ws")
-async def websocket_h264_stream(websocket: WebSocket, request: Request = None):
+async def websocket_h264_stream(websocket: WebSocket):
     """
     WebSocket endpoint for raw H.264 streaming.
     
     Provides direct H.264 stream data to WebCodecs-capable browsers.
     Each WebSocket message contains one complete H.264 access unit (frame).
     """
-    # Log client connection with real IP
-    client_ip = getattr(request.state, 'real_ip', 'unknown') if request else 'unknown'
-    print(f"🔌 WebSocket connection from {client_ip}")
+    # Log client connection 
+    client_ip = 'websocket-client'  # We can't get real IP in websocket handler easily
+    print(f"🔌 WebSocket connection established")
     
     await manager.connect(websocket)
     
@@ -287,16 +287,16 @@ async def websocket_h264_stream(websocket: WebSocket, request: Request = None):
             except WebSocketDisconnect:
                 break
             except Exception as e:
-                print(f"⚠️ WebSocket error from {client_ip}: {e}")
+                print(f"⚠️ WebSocket error: {e}")
                 break
                 
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"⚠️ WebSocket handler error from {client_ip}: {e}")
+        print(f"⚠️ WebSocket handler error: {e}")
     finally:
         await manager.disconnect(websocket)
-        print(f"🔌 WebSocket disconnected from {client_ip}")
+        print(f"🔌 WebSocket disconnected")
 
 @app.get("/health")
 @app.head("/health")

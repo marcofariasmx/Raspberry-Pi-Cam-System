@@ -28,6 +28,7 @@ try:
     from picamera2.encoders import H264Encoder
     from picamera2.outputs import FileOutput
     from libcamera import controls, Transform
+    import io
     PICAMERA2_AVAILABLE = True
 except ImportError:
     PICAMERA2_AVAILABLE = False
@@ -62,69 +63,140 @@ except ImportError:
 from src.config import Config
 
 
-class WebSocketH264Output:
-    """Custom output class for streaming H.264 to WebSocket clients."""
+class WebSocketH264Stream(io.BufferedIOBase):
+    """Memory-only H.264 stream that captures frames and broadcasts to WebSockets.
+    
+    This class implements the io.BufferedIOBase interface required by picamera2's
+    FileOutput, processing H.264 data in memory without any disk I/O.
+    """
     
     def __init__(self, connection_manager):
+        super().__init__()
         self.connection_manager = connection_manager
         self.frame_count = 0
         self.bytes_sent = 0
         self._running = False
         self._loop = None
+        self._buffer = bytearray()
         
-    def outputframe(self, frame, keyframe=True, timestamp=None):
-        """Process H.264 frame and send to WebSocket clients."""
-        if not self._running or not self.connection_manager:
-            return
+    def write(self, data):
+        """Called by picamera2 to write H.264 data. All processing in memory."""
+        if not self._running or not self.connection_manager or not data:
+            return len(data) if data else 0
             
+        try:
+            # Add data to memory buffer
+            self._buffer.extend(data)
+            
+            # Process complete NAL units (frames) in memory
+            self._process_nal_units()
+            
+            return len(data)
+        except Exception as e:
+            print(f"⚠️ WebSocket write error: {e}")
+            return len(data) if data else 0
+    
+    def _process_nal_units(self):
+        """Process and extract complete NAL units from memory buffer."""
+        buffer = self._buffer
+        start_codes = []
+        
+        # Find all NAL unit start codes (0x00 0x00 0x00 0x01)
+        i = 0
+        while i < len(buffer) - 3:
+            if (buffer[i] == 0x00 and buffer[i + 1] == 0x00 and 
+                buffer[i + 2] == 0x00 and buffer[i + 3] == 0x01):
+                start_codes.append(i)
+                i += 4
+            else:
+                i += 1
+        
+        # Extract complete NAL units (frames)
+        if len(start_codes) >= 2:
+            for j in range(len(start_codes) - 1):
+                start_pos = start_codes[j]
+                end_pos = start_codes[j + 1]
+                nal_unit = bytes(buffer[start_pos:end_pos])
+                
+                if len(nal_unit) > 4:  # Valid NAL unit
+                    self._send_frame(nal_unit)
+            
+            # Keep the last incomplete NAL unit in memory buffer
+            last_start = start_codes[-1]
+            self._buffer = bytearray(buffer[last_start:])
+    
+    def _send_frame(self, frame_data):
+        """Send frame data to WebSocket clients (memory to WebSocket)."""
         try:
             # Get the main event loop
             if self._loop is None:
                 try:
                     self._loop = asyncio.get_event_loop()
                 except RuntimeError:
-                    # No event loop in current thread, create a task instead
+                    # No event loop in current thread, use thread-safe approach
                     import threading
-                    threading.Thread(target=self._send_frame_async, args=(frame,), daemon=True).start()
+                    threading.Thread(target=self._send_frame_async, args=(frame_data,), daemon=True).start()
                     return
             
             # Schedule the frame broadcast in the main event loop
             if self._loop and not self._loop.is_closed():
-                self._loop.call_soon_threadsafe(self._schedule_broadcast, frame)
+                self._loop.call_soon_threadsafe(self._schedule_broadcast, frame_data)
                 
             self.frame_count += 1
-            self.bytes_sent += len(frame)
+            self.bytes_sent += len(frame_data)
             
             # Log stats every 60 frames (every 2 seconds at 30fps)
             if self.frame_count % 60 == 0:
                 avg_frame_size = self.bytes_sent / self.frame_count
-                print(f"📺 Streamed {self.frame_count} frames, avg size: {avg_frame_size:.0f} bytes")
+                print(f"📺 Streamed {self.frame_count} frames, avg size: {avg_frame_size:.0f} bytes (memory only)")
                 
         except Exception as e:
-            print(f"⚠️ WebSocket streaming error: {e}")
+            print(f"⚠️ WebSocket frame send error: {e}")
     
-    def _schedule_broadcast(self, frame):
+    def _schedule_broadcast(self, frame_data):
         """Schedule frame broadcast in the event loop."""
-        asyncio.create_task(self.connection_manager.broadcast_binary(frame))
+        asyncio.create_task(self.connection_manager.broadcast_binary(frame_data))
     
-    def _send_frame_async(self, frame):
+    def _send_frame_async(self, frame_data):
         """Send frame asynchronously when no event loop is available."""
         try:
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.connection_manager.broadcast_binary(frame))
+            loop.run_until_complete(self.connection_manager.broadcast_binary(frame_data))
             loop.close()
         except Exception as e:
             print(f"⚠️ Async frame send error: {e}")
     
+    def flush(self):
+        """Flush - no-op for memory stream."""
+        pass
+    
+    def close(self):
+        """Close the memory stream."""
+        self._running = False
+        self._buffer.clear()
+        
+    def readable(self):
+        """Stream is not readable."""
+        return False
+        
+    def writable(self):
+        """Stream is writable."""
+        return True
+        
+    def seekable(self):
+        """Stream is not seekable."""
+        return False
+        
     def start(self):
-        """Start the output."""
+        """Start the memory stream."""
         self._running = True
         
     def stop(self):
-        """Stop the output."""
+        """Stop the memory stream."""
         self._running = False
+        self._buffer.clear()
 
 
 
@@ -161,7 +233,8 @@ class Camera:
         """
         self.config = config
         self.camera: Optional[Picamera2] = None
-        self.h264_output: Optional[WebSocketH264Output] = None
+        self.h264_output: Optional[FileOutput] = None
+        self.h264_stream: Optional[WebSocketH264Stream] = None
         self.h264_streaming = False
         self.websocket_manager = None
         self._lock = threading.Lock()
@@ -402,9 +475,12 @@ class Camera:
                     profile="high"
                 )
                 
-                # Create WebSocket output handler
-                self.h264_output = WebSocketH264Output(websocket_manager)
-                self.h264_output.start()
+                # Create WebSocket stream handler
+                self.h264_stream = WebSocketH264Stream(websocket_manager)
+                self.h264_stream.start()
+                
+                # Create FileOutput with our stream
+                self.h264_output = FileOutput(self.h264_stream)
                 
                 # Start recording with H.264 encoder
                 self.camera.start_recording(encoder, self.h264_output)
@@ -435,14 +511,15 @@ class Camera:
                 return True
             
             try:
-                if self.h264_output:
-                    self.h264_output.stop()
-                
                 if PICAMERA2_AVAILABLE and self.camera:
                     self.camera.stop_recording()
                 
+                if self.h264_stream:
+                    self.h264_stream.stop()
+                
                 self.h264_streaming = False
                 self.h264_output = None
+                self.h264_stream = None
                 self.websocket_manager = None
                 print("🛑 WebSocket H.264 streaming stopped")
                 return True
