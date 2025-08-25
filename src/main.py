@@ -64,107 +64,36 @@ app = FastAPI(
 camera: Camera = None
 templates = Jinja2Templates(directory="src/templates")
 
-# WebSocket connection management
+# Simple WebSocket connection management
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
-        self.connection_count = 0
-        self._lock = asyncio.Lock()
-        self.frame_queue = []
-        self._queue_processor_running = False
     
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
-        async with self._lock:
-            self.active_connections.append(websocket)
-            self.connection_count += 1
-            print(f"🔌 WebSocket connected. Active connections: {self.connection_count}")
+        self.active_connections.append(websocket)
+        print(f"🔌 WebSocket connected. Active connections: {len(self.active_connections)}")
     
     async def disconnect(self, websocket: WebSocket):
-        async with self._lock:
-            if websocket in self.active_connections:
-                self.active_connections.remove(websocket)
-                self.connection_count -= 1
-                print(f"🔌 WebSocket disconnected. Active connections: {self.connection_count}")
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            print(f"🔌 WebSocket disconnected. Active connections: {len(self.active_connections)}")
     
     async def broadcast_binary(self, data: bytes):
         if not self.active_connections:
             return
         
-        # Use asyncio.gather for concurrent sends to all clients
+        # Send to all clients, remove any that fail
         disconnected = []
-        send_tasks = []
-        
-        async with self._lock:
-            for connection in self.active_connections[:]:  # Copy to avoid modification during iteration
-                try:
-                    send_tasks.append(connection.send_bytes(data))
-                except Exception:
-                    disconnected.append(connection)
-        
-        if send_tasks:
+        for connection in self.active_connections[:]:
             try:
-                await asyncio.gather(*send_tasks, return_exceptions=True)
-            except Exception as e:
-                print(f"⚠️ Binary broadcast error: {e}")
+                await connection.send_bytes(data)
+            except Exception:
+                disconnected.append(connection)
         
         # Clean up disconnected clients
         for conn in disconnected:
             await self.disconnect(conn)
-    
-    async def broadcast_text(self, data: str):
-        if not self.active_connections:
-            return
-        
-        # Use asyncio.gather for concurrent sends to all clients
-        disconnected = []
-        send_tasks = []
-        
-        async with self._lock:
-            for connection in self.active_connections[:]:  # Copy to avoid modification during iteration
-                try:
-                    send_tasks.append(connection.send_text(data))
-                except Exception:
-                    disconnected.append(connection)
-        
-        if send_tasks:
-            try:
-                await asyncio.gather(*send_tasks, return_exceptions=True)
-            except Exception as e:
-                print(f"⚠️ Text broadcast error: {e}")
-        
-        # Clean up disconnected clients
-        for conn in disconnected:
-            await self.disconnect(conn)
-    
-    async def start_queue_processor(self):
-        """Start the background queue processor."""
-        if self._queue_processor_running:
-            return
-            
-        self._queue_processor_running = True
-        asyncio.create_task(self._process_frame_queue())
-    
-    async def _process_frame_queue(self):
-        """Process the frame queue in the main event loop."""
-        while self._queue_processor_running:
-            try:
-                if self.frame_queue:
-                    # Process up to 5 frames per cycle to prevent blocking
-                    for _ in range(min(5, len(self.frame_queue))):
-                        if self.frame_queue:
-                            frame_data, is_config = self.frame_queue.pop(0)
-                            if is_config:
-                                await self.broadcast_text(frame_data.decode('utf-8'))
-                            else:
-                                await self.broadcast_binary(frame_data)
-                
-                # Small delay to prevent CPU spinning
-                await asyncio.sleep(0.01)  # 10ms
-                
-            except Exception as e:
-                print(f"⚠️ Queue processor error: {e}")
-                await asyncio.sleep(0.1)
 
 manager = ConnectionManager()
 
@@ -246,15 +175,11 @@ async def startup_event():
         camera = Camera(config)
         if camera.is_available():
             print("✅ Camera initialized and ready for WebSocket streaming")
-            
-            # Start the queue processor for frame handling
-            await manager.start_queue_processor()
-            print("✅ Frame queue processor started")
 
-            # Auto-start WebSocket H.264 streaming
-            print("🎬 Auto-starting WebSocket H.264 streaming...")
+            # Auto-start simple WebSocket H.264 streaming
+            print("🎬 Auto-starting simple WebSocket H.264 streaming...")
             if camera.start_websocket_h264_streaming(manager):
-                print("✅ WebSocket H.264 streaming auto-started successfully")
+                print("✅ Simple WebSocket H.264 streaming auto-started successfully")
                 print("🌐 WebCodecs clients can now connect to /ws endpoint")
             else:
                 print("⚠️  Failed to auto-start WebSocket H.264 streaming")

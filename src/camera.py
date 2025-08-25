@@ -64,170 +64,25 @@ except ImportError:
 from src.config import Config
 
 
-class WebSocketH264Stream(io.BufferedIOBase):
-    """Memory-only H.264 stream that captures frames and broadcasts to WebSockets.
+class StreamingOutput(io.BufferedIOBase):
+    """Ultra-simple H.264 streaming output - sends data directly to WebSocket clients."""
     
-    This class implements the io.BufferedIOBase interface required by picamera2's
-    FileOutput, processing H.264 data in memory without any disk I/O.
-    """
-    
-    def __init__(self, connection_manager):
+    def __init__(self, websocket_manager):
         super().__init__()
-        self.connection_manager = connection_manager
+        self.websocket_manager = websocket_manager
         self.frame_count = 0
-        self.bytes_sent = 0
-        self._running = False
-        self._loop = None
-        self._buffer = bytearray()
-        
-    def write(self, data):
-        """Called by picamera2 to write H.264 data. All processing in memory."""
-        if not self._running or not self.connection_manager or not data:
-            return len(data) if data else 0
-            
-        try:
-            # Add data to memory buffer
-            self._buffer.extend(data)
-            
-            # Process complete NAL units (frames) in memory
-            self._process_nal_units()
-            
-            return len(data)
-        except Exception as e:
-            print(f"⚠️ WebSocket write error: {e}")
-            return len(data) if data else 0
     
-    def _process_nal_units(self):
-        """Process and extract complete NAL units from memory buffer."""
-        buffer = self._buffer
-        start_codes = []
-        
-        # Find all NAL unit start codes (0x00 0x00 0x00 0x01)
-        i = 0
-        while i < len(buffer) - 3:
-            if (buffer[i] == 0x00 and buffer[i + 1] == 0x00 and 
-                buffer[i + 2] == 0x00 and buffer[i + 3] == 0x01):
-                start_codes.append(i)
-                i += 4
-            else:
-                i += 1
-        
-        # Extract complete NAL units (frames)
-        if len(start_codes) >= 2:
-            for j in range(len(start_codes) - 1):
-                start_pos = start_codes[j]
-                end_pos = start_codes[j + 1]
-                nal_unit = bytes(buffer[start_pos:end_pos])
+    def write(self, buf):
+        """Send H.264 data directly to all WebSocket clients."""
+        if self.websocket_manager and buf:
+            # Send raw H.264 data to all connected clients
+            asyncio.create_task(self.websocket_manager.broadcast_binary(buf))
+            
+            self.frame_count += 1
+            if self.frame_count % 60 == 0:
+                print(f"📺 H.264 frames sent: {self.frame_count}")
                 
-                if len(nal_unit) > 4:  # Valid NAL unit
-                    self._process_nal_unit(nal_unit)
-            
-            # Keep the last incomplete NAL unit in memory buffer
-            last_start = start_codes[-1]
-            self._buffer = bytearray(buffer[last_start:])
-    
-    def _process_nal_unit(self, nal_unit):
-        """Process individual NAL unit and extract SPS/PPS if needed."""
-        if len(nal_unit) < 5:
-            return
-            
-        # Parse NAL unit header (after 0x00000001)
-        nal_header = nal_unit[4]
-        nal_type = nal_header & 0x1F
-        
-        # Track SPS (type 7) and PPS (type 8) for WebCodecs config
-        if nal_type == 7:  # SPS
-            print(f"📄 Found SPS NAL unit ({len(nal_unit)} bytes)")
-            self._send_config_frame('sps', nal_unit)
-        elif nal_type == 8:  # PPS  
-            print(f"📄 Found PPS NAL unit ({len(nal_unit)} bytes)")
-            self._send_config_frame('pps', nal_unit)
-        elif nal_type == 5:  # IDR frame
-            self._send_frame(nal_unit, is_keyframe=True)
-        elif nal_type == 1:  # Non-IDR frame
-            self._send_frame(nal_unit, is_keyframe=False)
-        else:
-            # Other NAL types (AUD, SEI, etc.) - send as-is
-            self._send_frame(nal_unit, is_keyframe=False)
-    
-    def _send_config_frame(self, config_type, nal_unit):
-        """Send SPS/PPS configuration data to WebSocket clients."""
-        try:
-            # Create a JSON message with configuration data
-            config_data = {
-                "type": "config",
-                "config_type": config_type,
-                "data": list(nal_unit),  # Convert bytes to array for JSON
-                "length": len(nal_unit)
-            }
-            
-            # Send as text message for configuration
-            config_json = json.dumps(config_data).encode('utf-8')
-            self._send_frame_data(config_json, is_config=True)
-            
-        except Exception as e:
-            print(f"⚠️ Config frame send error: {e}")
-    
-    def _send_frame(self, frame_data, is_keyframe=False):
-        """Send frame data to WebSocket clients (memory to WebSocket)."""
-        self._send_frame_data(frame_data, is_config=False, is_keyframe=is_keyframe)
-    
-    def _send_frame_data(self, frame_data, is_config=False, is_keyframe=False):
-        """Send frame data to WebSocket clients - simplified approach."""
-        try:
-            # Store in a simple queue that the main thread can process
-            if hasattr(self.connection_manager, 'frame_queue'):
-                self.connection_manager.frame_queue.append((frame_data, is_config))
-            else:
-                # Initialize queue
-                self.connection_manager.frame_queue = [(frame_data, is_config)]
-                
-            # Limit queue size to prevent memory buildup
-            if len(self.connection_manager.frame_queue) > 10:
-                self.connection_manager.frame_queue.pop(0)  # Remove oldest
-                
-            if not is_config:  # Only count actual video frames
-                self.frame_count += 1
-                self.bytes_sent += len(frame_data)
-                
-                # Log stats every 40 frames (every 2 seconds at 20fps)
-                if self.frame_count % 40 == 0:
-                    avg_frame_size = self.bytes_sent / self.frame_count
-                    print(f"📺 Streamed {self.frame_count} frames, avg size: {avg_frame_size:.0f} bytes (memory only)")
-                
-        except Exception as e:
-            print(f"⚠️ WebSocket frame send error: {e}")
-    
-    
-    def flush(self):
-        """Flush - no-op for memory stream."""
-        pass
-    
-    def close(self):
-        """Close the memory stream."""
-        self._running = False
-        self._buffer.clear()
-        
-    def readable(self):
-        """Stream is not readable."""
-        return False
-        
-    def writable(self):
-        """Stream is writable."""
-        return True
-        
-    def seekable(self):
-        """Stream is not seekable."""
-        return False
-        
-    def start(self):
-        """Start the memory stream."""
-        self._running = True
-        
-    def stop(self):
-        """Stop the memory stream."""
-        self._running = False
-        self._buffer.clear()
+        return len(buf)
 
 
 
@@ -237,18 +92,18 @@ class Camera:
     Camera management class for Raspberry Pi streaming applications.
     
     This class handles camera initialization, configuration, and streaming operations.
-    It provides a simple interface for MJPEG video streaming with automatic hardware
+    It provides a simple interface for H.264 video streaming with automatic hardware
     detection and graceful fallbacks for development environments.
     
     The camera supports:
-    - Hardware-accelerated JPEG encoding when available
-    - Configurable resolution, framerate, and quality
+    - Hardware-accelerated H.264 encoding for WebCodecs
+    - Configurable resolution, framerate, and bitrate
     - Camera transforms (horizontal/vertical flip)
     - Thread-safe streaming operations
     - Automatic resource cleanup
     
     In development environments without camera hardware, the class operates in
-    mock mode, generating synthetic MJPEG frames for testing purposes.
+    mock mode for testing purposes.
     """
     
     def __init__(self, config: Config):
@@ -264,10 +119,10 @@ class Camera:
         """
         self.config = config
         self.camera: Optional[Picamera2] = None
-        self.h264_output: Optional[FileOutput] = None
-        self.h264_stream: Optional[WebSocketH264Stream] = None
+        self.h264_output: Optional[StreamingOutput] = None
         self.h264_streaming = False
         self.websocket_manager = None
+        self._streaming_task = None
         self._lock = threading.Lock()
         self._use_lores_stream = False
         self._sensor_info = None
@@ -466,8 +321,8 @@ class Camera:
         """
         Start H.264 video streaming to WebSocket clients.
         
-        Configures H.264 hardware encoding optimized for WebCodecs with proper
-        SPS/PPS handling for mid-stream joins and minimal latency.
+        Simple approach: H.264 data goes directly from camera to WebSocket clients
+        without complex buffering or NAL unit parsing.
         
         Args:
             websocket_manager: Connection manager for WebSocket clients
@@ -495,32 +350,19 @@ class Camera:
                 # Reconfigure camera with current settings
                 self._configure_camera()
                 
-                # Create H.264 encoder optimized for WebCodecs
-                # Use 1-second keyframe interval for fast viewer join
-                keyframe_interval = self.config.stream_fps
-                encoder = H264Encoder(
-                    bitrate=self.config.h264_bitrate,
-                    repeat=True,     # Critical: Repeat SPS/PPS before every IDR
-                    iperiod=keyframe_interval,  # 1 second keyframes
-                    # Use profile that WebCodecs supports well
-                    profile="high"
-                )
+                # Create simple H.264 encoder
+                encoder = H264Encoder(bitrate=self.config.h264_bitrate)
                 
-                # Create WebSocket stream handler
-                self.h264_stream = WebSocketH264Stream(websocket_manager)
-                self.h264_stream.start()
+                # Create direct streaming output
+                self.h264_output = StreamingOutput(websocket_manager)
                 
-                # Create FileOutput with our stream
-                self.h264_output = FileOutput(self.h264_stream)
-                
-                # Start recording with H.264 encoder
+                # Start recording - H.264 data goes directly to WebSocket clients
                 self.camera.start_recording(encoder, self.h264_output)
                 self.h264_streaming = True
                 
-                print(f"🎬 WebSocket H.264 streaming started for WebCodecs")
+                print(f"🎬 Simple WebSocket H.264 streaming started")
                 print(f"   Resolution: {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps")
                 print(f"   Bitrate: {self.config.h264_bitrate//1000000}Mbps")
-                print(f"   Keyframe interval: {keyframe_interval} frames (1 second)")
                 return True
                 
             except Exception as e:
@@ -545,14 +387,10 @@ class Camera:
                 if PICAMERA2_AVAILABLE and self.camera:
                     self.camera.stop_recording()
                 
-                if self.h264_stream:
-                    self.h264_stream.stop()
-                
                 self.h264_streaming = False
                 self.h264_output = None
-                self.h264_stream = None
                 self.websocket_manager = None
-                print("🛑 WebSocket H.264 streaming stopped")
+                print("🛑 Simple WebSocket H.264 streaming stopped")
                 return True
             except Exception as e:
                 print(f"⚠️  Error stopping WebSocket H.264 stream: {e}")
