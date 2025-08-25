@@ -331,9 +331,17 @@
 
             extractAndConfigure(data) {
                 try {
-                    const view = new Uint8Array(data);
+                    // Since basic configuration works fine, just use that
+                    // SPS/PPS extraction is complex and not needed for working stream
+                    console.log('⚠️ Using basic decoder configuration (SPS/PPS extraction skipped)');
+                    this.configureBasic();
+                    // Also process this frame
+                    this.processH264Frame(data);
+                    return;
                     
-                    // Find NAL units by looking for start codes
+                    /* 
+                    // SPS/PPS extraction code (disabled for simplicity)
+                    const view = new Uint8Array(data);
                     let sps = null;
                     let pps = null;
                     
@@ -345,6 +353,7 @@
                             const startOffset = (view[i+2] === 1) ? i + 3 : i + 4;
                             if (startOffset < view.length) {
                                 const nalType = view[startOffset] & 0x1F;
+                                console.log(`Found NAL unit type: ${nalType} at offset ${startOffset}`);
                                 
                                 // Find the end of this NAL unit
                                 let endOffset = view.length;
@@ -378,12 +387,11 @@
                         }
                     }
                     
-                    // If no SPS/PPS found, try basic configuration
-                    console.log('⚠️ No SPS/PPS found in frame, trying basic config');
-                    this.configureBasic();
+                    // (End of disabled SPS/PPS extraction code)
+                    */
                     
                 } catch (error) {
-                    console.error('❌ SPS/PPS extraction error:', error);
+                    console.error('❌ Decoder configuration error:', error);
                     this.configureBasic();
                 }
             }
@@ -497,13 +505,25 @@
             }
 
             isKeyFrame(data) {
-                // Simple NAL unit detection for keyframes
+                // Enhanced NAL unit detection for keyframes
                 const view = new Uint8Array(data);
-                for (let i = 0; i < view.length - 4; i++) {
+                for (let i = 0; i < Math.min(view.length - 4, 100); i++) {
+                    // Check for 4-byte start code (0x00000001)
                     if (view[i] === 0x00 && view[i + 1] === 0x00 && 
                         view[i + 2] === 0x00 && view[i + 3] === 0x01) {
-                        const nalType = view[i + 4] & 0x1F;
-                        return nalType === 5; // IDR frame
+                        if (i + 4 < view.length) {
+                            const nalType = view[i + 4] & 0x1F;
+                            // IDR (5) or SPS (7) are keyframes
+                            if (nalType === 5 || nalType === 7) return true;
+                        }
+                    }
+                    // Check for 3-byte start code (0x000001)
+                    else if (view[i] === 0x00 && view[i + 1] === 0x00 && view[i + 2] === 0x01) {
+                        if (i + 3 < view.length) {
+                            const nalType = view[i + 3] & 0x1F;
+                            // IDR (5) or SPS (7) are keyframes  
+                            if (nalType === 5 || nalType === 7) return true;
+                        }
                     }
                 }
                 return false;
