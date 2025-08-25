@@ -31,11 +31,15 @@ import httpx
 import asyncio
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import json
+import logging
+import socket
+import weakref
 
 from src.config import get_config, print_config
 from src.camera import Camera
@@ -60,8 +64,84 @@ app = FastAPI(
 camera: Camera = None
 templates = Jinja2Templates(directory="src/templates")
 
+# WebSocket connection management
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+        self.connection_count = 0
+        self._lock = asyncio.Lock()
+    
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        async with self._lock:
+            self.active_connections.append(websocket)
+            self.connection_count += 1
+            print(f"🔌 WebSocket connected. Active connections: {self.connection_count}")
+    
+    async def disconnect(self, websocket: WebSocket):
+        async with self._lock:
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)
+                self.connection_count -= 1
+                print(f"🔌 WebSocket disconnected. Active connections: {self.connection_count}")
+    
+    async def broadcast_binary(self, data: bytes):
+        if not self.active_connections:
+            return
+        
+        # Use asyncio.gather for concurrent sends to all clients
+        disconnected = []
+        send_tasks = []
+        
+        async with self._lock:
+            for connection in self.active_connections[:]:  # Copy to avoid modification during iteration
+                try:
+                    send_tasks.append(connection.send_bytes(data))
+                except Exception:
+                    disconnected.append(connection)
+        
+        if send_tasks:
+            try:
+                await asyncio.gather(*send_tasks, return_exceptions=True)
+            except Exception as e:
+                print(f"⚠️ Broadcast error: {e}")
+        
+        # Clean up disconnected clients
+        for conn in disconnected:
+            await self.disconnect(conn)
+
+manager = ConnectionManager()
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
+
+# Middleware for Cloudflare proxy compatibility
+@app.middleware("http")
+async def cloudflare_proxy_middleware(request: Request, call_next):
+    """Handle Cloudflare proxy headers and WebSocket upgrades."""
+    # Extract real client IP for logging
+    real_ip = request.headers.get("CF-Connecting-IP") or \
+              request.headers.get("X-Forwarded-For") or \
+              request.headers.get("X-Real-IP") or \
+              (request.client.host if request.client else "unknown")
+    
+    request.state.real_ip = real_ip
+    
+    # Process the request
+    response = await call_next(request)
+    
+    # Add CORS headers if needed
+    if request.method == "OPTIONS":
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    
+    # Ensure WebSocket connections work through proxy
+    if "websocket" in request.headers.get("upgrade", "").lower():
+        response.headers["Connection"] = "upgrade"
+        response.headers["Upgrade"] = "websocket"
+    
+    return response
 
 
 async def monitor_stream_readiness():
@@ -98,37 +178,34 @@ async def startup_event():
     """
     Application startup event handler.
     
-    Initializes picamera2 for full camera control while streaming to MediaMTX.
+    Initializes picamera2 for WebCodecs H.264 streaming via WebSocket.
     """
     global camera
     
-    print("🚀 Starting Pi Camera Streaming App...")
-    print("📹 Using picamera2 with MediaMTX streaming integration")
+    print("🚀 Starting Pi Camera WebCodecs Streaming App...")
+    print("📹 Using picamera2 with WebSocket H.264 streaming for WebCodecs")
     
     try:
         # Initialize camera with optimized settings
         camera = Camera(config)
         if camera.is_available():
-            print("✅ Camera initialized and ready for streaming")
+            print("✅ Camera initialized and ready for WebSocket streaming")
             
-            # Auto-start H.264 streaming to MediaMTX on startup
-            print("🎬 Auto-starting H.264 streaming to MediaMTX...")
-            if camera.start_h264_streaming():
-                print("✅ H.264 streaming auto-started successfully")
-                print("⏳ Stream will be available in MediaMTX within ~5 seconds...")
-                
-                # Start background task to monitor stream readiness
-                asyncio.create_task(monitor_stream_readiness())
+            # Auto-start WebSocket H.264 streaming
+            print("🎬 Auto-starting WebSocket H.264 streaming...")
+            if camera.start_websocket_h264_streaming(manager):
+                print("✅ WebSocket H.264 streaming auto-started successfully")
+                print("🌐 WebCodecs clients can now connect to /ws endpoint")
             else:
-                print("⚠️  Failed to auto-start H.264 streaming")
+                print("⚠️  Failed to auto-start WebSocket H.264 streaming")
         else:
             print("⚠️  Camera not available - check hardware connection")
     except Exception as e:
         print(f"❌ Camera initialization failed: {e}")
-        print("💡 If MediaMTX is using camera, restart it first")
         camera = None
     
     print(f"🌐 Server starting on {config.host}:{config.port}")
+    print("📺 Visit the web interface to view the WebCodecs stream")
 
 
 @app.on_event("shutdown")
@@ -169,33 +246,75 @@ async def home(request: Request):
     })
 
 
+@app.websocket("/ws")
+async def websocket_h264_stream(websocket: WebSocket, request: Request = None):
+    """
+    WebSocket endpoint for raw H.264 streaming.
+    
+    Provides direct H.264 stream data to WebCodecs-capable browsers.
+    Each WebSocket message contains one complete H.264 access unit (frame).
+    """
+    # Log client connection with real IP
+    client_ip = getattr(request.state, 'real_ip', 'unknown') if request else 'unknown'
+    print(f"🔌 WebSocket connection from {client_ip}")
+    
+    await manager.connect(websocket)
+    
+    try:
+        # Keep connection alive and handle client messages
+        while True:
+            try:
+                # Wait for ping/control messages from client with shorter timeout
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                
+                # Handle client control messages
+                try:
+                    parsed = json.loads(message)
+                    if parsed.get("type") == "pong":
+                        # Client responded to our keepalive
+                        pass
+                except (json.JSONDecodeError, KeyError):
+                    # Not a valid control message, ignore
+                    pass
+                    
+            except asyncio.TimeoutError:
+                # Send keepalive to client
+                try:
+                    await websocket.send_text('{"type":"keepalive"}')
+                except Exception:
+                    # Connection likely closed
+                    break
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                print(f"⚠️ WebSocket error from {client_ip}: {e}")
+                break
+                
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"⚠️ WebSocket handler error from {client_ip}: {e}")
+    finally:
+        await manager.disconnect(websocket)
+        print(f"🔌 WebSocket disconnected from {client_ip}")
+
 @app.get("/health")
 @app.head("/health")
 async def health_check():
     """
-    System health and status endpoint.
-    
-    Provides information about the application status, camera availability,
-    and current configuration. This endpoint is useful for monitoring
-    systems and automated health checks.
-    
-    Returns:
-        dict: JSON object containing:
-            - status: Overall system status ("healthy")
-            - service: Service name identifier
-            - timestamp: Current timestamp in ISO format
-            - camera_available: Boolean indicating camera hardware status
-            - stream_config: Current streaming configuration details
+    System health and status endpoint for Cloudflare proxying.
     """
     return {
         "status": "healthy",
-        "service": "pi-camera-stream",
+        "service": "pi-camera-webcodecs-stream",
         "timestamp": datetime.now().isoformat(),
         "camera_available": camera.is_available() if camera else False,
+        "websocket_connections": manager.connection_count,
         "stream_config": {
             "resolution": f"{config.stream_width}x{config.stream_height}",
             "fps": config.stream_fps,
-            "h264_bitrate": config.h264_bitrate
+            "h264_bitrate": config.h264_bitrate,
+            "streaming_protocol": "websocket_webcodecs"
         }
     }
 
@@ -290,36 +409,42 @@ async def video_stream():
         raise HTTPException(status_code=500, detail=f"Streaming error: {str(e)}")
 
 
-@app.get("/api/camera/stream/info")
+@app.get("/api/stream/info")
 async def stream_info():
     """
-    Get information about picamera2 streaming status and available endpoints.
+    Get stream metadata for WebCodecs client initialization.
     
     Returns:
-        dict: Stream information including available protocols and URLs
+        dict: Stream information including resolution, fps, codec details
     """
     if not camera or not camera.is_available():
         return {
             "camera_available": False,
-            "streams": {},
-            "message": "Camera not available"
+            "streaming_protocol": "websocket_webcodecs",
+            "error": "Camera not available"
         }
-    
-    # Check if H.264 streaming is active
-    h264_active = camera.is_h264_streaming() if hasattr(camera, 'is_h264_streaming') else False
     
     return {
         "camera_available": True,
-        "h264_streaming": h264_active,
-        "streaming_mode": "h264",
-        "streams": {
-            "h264": {
-                "webrtc": f"/api/mediamtx/webrtc",
-                "hls": f"/api/mediamtx/hls", 
-                "rtsp": f"rtsp://{config.host}:8554/cam"
-            }
-        } if h264_active else {},
-        "message": "picamera2 → MediaMTX → WebRTC/HLS pipeline"
+        "streaming_protocol": "websocket_webcodecs",
+        "websocket_endpoint": "/ws",
+        "resolution": {
+            "width": config.stream_width,
+            "height": config.stream_height
+        },
+        "fps": config.stream_fps,
+        "codec": {
+            "name": "h264",
+            "profile": "high",
+            "level": "3.1",
+            "bitrate": config.h264_bitrate
+        },
+        "websocket_info": {
+            "buffer_size": config.websocket_buffer_size,
+            "max_viewers": config.max_concurrent_viewers,
+            "current_connections": manager.connection_count
+        },
+        "h264_streaming": camera.is_h264_streaming() if hasattr(camera, 'is_h264_streaming') else False
     }
 
 
@@ -428,9 +553,38 @@ async def update_camera_settings(settings: CameraSettings):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
+    
+    # TCP optimizations for low-latency streaming
+    uvicorn_config = uvicorn.Config(
         app,
         host=config.host,
         port=config.port,
-        log_level="info"
+        log_level="info",
+        loop="uvloop",  # Use uvloop for better performance
+        ws_ping_interval=20,  # WebSocket ping interval
+        ws_ping_timeout=10,   # WebSocket ping timeout
+        access_log=True,
+        # Enable TCP optimizations
+        backlog=2048,
     )
+    
+    server = uvicorn.Server(uvicorn_config)
+    
+    # Apply TCP socket optimizations
+    try:
+        original_create_server = server.create_server
+        def optimized_create_server():
+            sock = original_create_server()
+            if hasattr(socket, 'TCP_NODELAY'):
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            if hasattr(socket, 'SO_SNDBUF'):
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
+            if hasattr(socket, 'SO_RCVBUF'):
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)
+            return sock
+        server.create_server = optimized_create_server
+    except Exception as e:
+        print(f"⚠️ Could not apply TCP optimizations: {e}")
+    
+    print("🚀 Starting WebCodecs streaming server with TCP optimizations...")
+    server.run()

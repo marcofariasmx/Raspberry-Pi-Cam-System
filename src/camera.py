@@ -19,13 +19,14 @@ configures optimal settings based on the provided configuration.
 import io
 import time
 import threading
+import asyncio
 from threading import Condition
-from typing import Generator, Optional
+from typing import Generator, Optional, Any
 
 try:
     from picamera2 import Picamera2
     from picamera2.encoders import H264Encoder
-    from picamera2.outputs import FfmpegOutput
+    from picamera2.outputs import FileOutput
     from libcamera import controls, Transform
     PICAMERA2_AVAILABLE = True
 except ImportError:
@@ -49,9 +50,9 @@ except ImportError:
         def __init__(self, bitrate=None):
             self.bitrate = bitrate
     
-    class FfmpegOutput:
-        def __init__(self, cmd):
-            self.cmd = cmd
+    class FileOutput:
+        def __init__(self, file):
+            self.file = file
     
     class Transform:
         def __init__(self, hflip=False, vflip=False):
@@ -59,6 +60,71 @@ except ImportError:
             self.vflip = vflip
 
 from src.config import Config
+
+
+class WebSocketH264Output:
+    """Custom output class for streaming H.264 to WebSocket clients."""
+    
+    def __init__(self, connection_manager):
+        self.connection_manager = connection_manager
+        self.frame_count = 0
+        self.bytes_sent = 0
+        self._running = False
+        self._loop = None
+        
+    def outputframe(self, frame, keyframe=True, timestamp=None):
+        """Process H.264 frame and send to WebSocket clients."""
+        if not self._running or not self.connection_manager:
+            return
+            
+        try:
+            # Get the main event loop
+            if self._loop is None:
+                try:
+                    self._loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    # No event loop in current thread, create a task instead
+                    import threading
+                    threading.Thread(target=self._send_frame_async, args=(frame,), daemon=True).start()
+                    return
+            
+            # Schedule the frame broadcast in the main event loop
+            if self._loop and not self._loop.is_closed():
+                self._loop.call_soon_threadsafe(self._schedule_broadcast, frame)
+                
+            self.frame_count += 1
+            self.bytes_sent += len(frame)
+            
+            # Log stats every 60 frames (every 2 seconds at 30fps)
+            if self.frame_count % 60 == 0:
+                avg_frame_size = self.bytes_sent / self.frame_count
+                print(f"📺 Streamed {self.frame_count} frames, avg size: {avg_frame_size:.0f} bytes")
+                
+        except Exception as e:
+            print(f"⚠️ WebSocket streaming error: {e}")
+    
+    def _schedule_broadcast(self, frame):
+        """Schedule frame broadcast in the event loop."""
+        asyncio.create_task(self.connection_manager.broadcast_binary(frame))
+    
+    def _send_frame_async(self, frame):
+        """Send frame asynchronously when no event loop is available."""
+        try:
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.connection_manager.broadcast_binary(frame))
+            loop.close()
+        except Exception as e:
+            print(f"⚠️ Async frame send error: {e}")
+    
+    def start(self):
+        """Start the output."""
+        self._running = True
+        
+    def stop(self):
+        """Stop the output."""
+        self._running = False
 
 
 
@@ -95,8 +161,9 @@ class Camera:
         """
         self.config = config
         self.camera: Optional[Picamera2] = None
-        self.h264_output: Optional[FfmpegOutput] = None
+        self.h264_output: Optional[WebSocketH264Output] = None
         self.h264_streaming = False
+        self.websocket_manager = None
         self._lock = threading.Lock()
         self._use_lores_stream = False
         self._sensor_info = None
@@ -291,13 +358,15 @@ class Camera:
             return False
     
     
-    def start_h264_streaming(self) -> bool:
+    def start_websocket_h264_streaming(self, websocket_manager) -> bool:
         """
-        Start H.264 video streaming to MediaMTX via UDP.
+        Start H.264 video streaming to WebSocket clients.
         
-        Configures H.264 hardware encoding and streams via FFmpeg to MediaMTX
-        using UDP transport. This provides efficient streaming for WebRTC/HLS
-        distribution with minimal CPU overhead.
+        Configures H.264 hardware encoding optimized for WebCodecs with proper
+        SPS/PPS handling for mid-stream joins and minimal latency.
+        
+        Args:
+            websocket_manager: Connection manager for WebSocket clients
         
         Returns:
             bool: True if H.264 streaming was started successfully, False otherwise
@@ -308,45 +377,52 @@ class Camera:
             
             if not PICAMERA2_AVAILABLE:
                 self.h264_streaming = True
-                print("🎬 Mock H.264 streaming started")
+                self.websocket_manager = websocket_manager
+                print("🎬 Mock WebSocket H.264 streaming started")
                 return True
             
             if not self.camera:
                 return False
             
             try:
-                # Reconfigure camera with current settings (single point of configuration)
+                # Store websocket manager for streaming
+                self.websocket_manager = websocket_manager
+                
+                # Reconfigure camera with current settings
                 self._configure_camera()
                 
-                # Create H.264 encoder with proper configuration for MediaMTX
-                # Adjust keyframe interval based on FPS (every 2 seconds)
-                keyframe_interval = self.config.stream_fps * 2
+                # Create H.264 encoder optimized for WebCodecs
+                # Use 1-second keyframe interval for fast viewer join
+                keyframe_interval = self.config.stream_fps
                 encoder = H264Encoder(
                     bitrate=self.config.h264_bitrate,
-                    repeat=True,     # Repeat SPS/PPS headers for stream robustness
-                    iperiod=keyframe_interval  # Insert keyframes every 2 seconds
+                    repeat=True,     # Critical: Repeat SPS/PPS before every IDR
+                    iperiod=keyframe_interval,  # 1 second keyframes
+                    # Use profile that WebCodecs supports well
+                    profile="high"
                 )
                 
-                # Create FFmpeg output to publish H.264 directly to MediaMTX via RTSP
-                rtsp_url = f"rtsp://127.0.0.1:8554/cam"
-                self.h264_output = FfmpegOutput(f"-f rtsp -rtsp_transport tcp -fflags +genpts {rtsp_url}")
+                # Create WebSocket output handler
+                self.h264_output = WebSocketH264Output(websocket_manager)
+                self.h264_output.start()
                 
                 # Start recording with H.264 encoder
                 self.camera.start_recording(encoder, self.h264_output)
                 self.h264_streaming = True
                 
-                print(f"🎬 H.264 streaming started to MediaMTX (RTSP:8554/cam)")
+                print(f"🎬 WebSocket H.264 streaming started for WebCodecs")
                 print(f"   Resolution: {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps")
                 print(f"   Bitrate: {self.config.h264_bitrate//1000000}Mbps")
+                print(f"   Keyframe interval: {keyframe_interval} frames (1 second)")
                 return True
                 
             except Exception as e:
-                print(f"❌ Failed to start H.264 streaming: {e}")
+                print(f"❌ Failed to start WebSocket H.264 streaming: {e}")
                 return False
     
     def stop_h264_streaming(self) -> bool:
         """
-        Stop H.264 video streaming to MediaMTX.
+        Stop H.264 video streaming to WebSocket clients.
         
         Safely stops the H.264 streaming session and releases resources.
         This method is thread-safe and can be called multiple times safely.
@@ -359,20 +435,25 @@ class Camera:
                 return True
             
             try:
+                if self.h264_output:
+                    self.h264_output.stop()
+                
                 if PICAMERA2_AVAILABLE and self.camera:
                     self.camera.stop_recording()
+                
                 self.h264_streaming = False
                 self.h264_output = None
-                print("🛑 H.264 streaming stopped")
+                self.websocket_manager = None
+                print("🛑 WebSocket H.264 streaming stopped")
                 return True
             except Exception as e:
-                print(f"⚠️  Error stopping H.264 stream: {e}")
+                print(f"⚠️  Error stopping WebSocket H.264 stream: {e}")
                 self.h264_streaming = False
                 return True
     
     def is_h264_streaming(self) -> bool:
         """
-        Check if camera is currently streaming H.264 to MediaMTX.
+        Check if camera is currently streaming H.264 to WebSocket clients.
         
         Returns:
             bool: True if H.264 streaming is active

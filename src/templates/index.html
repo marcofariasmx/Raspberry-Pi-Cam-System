@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Pi Camera Stream</title>
+    <title>Pi Camera WebCodecs Stream</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
@@ -27,10 +27,17 @@
             justify-content: center;
         }
         
-        #stream {
+        #videoCanvas {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
+        }
+        
+        #fallbackVideo {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            display: none;
         }
         
         .metrics-bar {
@@ -107,6 +114,31 @@
         .toggle-metrics:hover {
             background: rgba(255, 255, 255, 0.2);
         }
+
+        .error-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(244, 67, 54, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            z-index: 1000;
+            display: none;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            z-index: 1000;
+        }
         
         @media (max-width: 768px) {
             .metrics-bar {
@@ -125,14 +157,25 @@
 </head>
 <body>
     <div class="video-container">
-        <!-- WebRTC Video Element (Primary) -->
-        <video id="webrtcStream" autoplay muted playsinline style="display: none;">
-        </video>
+        <!-- WebCodecs Canvas (Primary) -->
+        <canvas id="videoCanvas" width="1200" height="900"></canvas>
         
-        <!-- HLS Video Element (Fallback) -->
-        <video id="hlsStream" autoplay muted playsinline style="display: none;">
-            <source id="hlsSource" src="" type="application/vnd.apple.mpegurl">
-        </video>
+        <!-- Fallback Video Element (MSE/Broadway) -->
+        <video id="fallbackVideo" autoplay muted playsinline></video>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div>🚀 Initializing WebCodecs stream...</div>
+        <div style="margin-top: 10px; font-size: 12px; color: #888;">
+            Attempting to connect via WebSocket
+        </div>
+    </div>
+
+    <div class="error-overlay" id="errorOverlay">
+        <div id="errorMessage">Connection failed</div>
+        <div style="margin-top: 10px; font-size: 12px;">
+            <button onclick="location.reload()" style="background: #fff; color: #000; border: none; padding: 8px 16px; border-radius: 4px;">Reload</button>
+        </div>
     </div>
     
     <div class="metrics-bar" id="metricsBar">
@@ -145,261 +188,385 @@
             <span class="metric-label">FPS:</span>
             <span class="metric-value" id="actualFps">--</span>
             <span class="metric-label"> / </span>
-            <span class="metric-value" id="targetFps">--</span>
-            <span class="metric-label"> (actual/expected)</span>
+            <span class="metric-value" id="targetFps">{{ config.stream_fps }}</span>
         </div>
         <div class="metric" id="protocolMetric">
-            <span class="metric-label">Protocol:</span>
-            <span class="metric-value" id="protocol">--</span>
+            <span class="metric-label">Decoder:</span>
+            <span class="metric-value" id="decoder">--</span>
         </div>
         <div class="metric" id="qualityMetric">
-            <span class="metric-label" id="qualityLabel">Quality:</span>
-            <span class="metric-value" id="quality">{{ config.jpeg_quality }}%</span>
+            <span class="metric-label">Bitrate:</span>
+            <span class="metric-value" id="bitrate">{{ config.h264_bitrate // 1000000 }}Mbps</span>
         </div>
         <div class="metric">
             <span class="metric-label">Latency:</span>
             <span class="metric-value" id="latency">--ms</span>
         </div>
+        <div class="metric">
+            <span class="metric-label">Frames:</span>
+            <span class="metric-value" id="frameCount">0</span>
+        </div>
     </div>
     
     <button class="toggle-metrics" id="toggleMetrics" title="Toggle metrics display">📊</button>
     
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.10/dist/hls.min.js"></script>
     <script src="/static/metrics.js"></script>
     <script>
+        // Global state
         let metricsVisible = true;
-        let currentProtocol = null;
-        let webrtcConnection = null;
-        
-        // Get DOM elements
+        let currentPlayer = null;
+        let frameCount = 0;
+        let startTime = Date.now();
+        let lastFrameTime = 0;
+        let fpsCounter = 0;
+        let fpsInterval = null;
+
+        // DOM elements
         const metricsBar = document.getElementById('metricsBar');
         const toggleButton = document.getElementById('toggleMetrics');
-        const webrtcStream = document.getElementById('webrtcStream');
-        const hlsStream = document.getElementById('hlsStream');
-        
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const errorOverlay = document.getElementById('errorOverlay');
+        const videoCanvas = document.getElementById('videoCanvas');
+        const fallbackVideo = document.getElementById('fallbackVideo');
+
         // Toggle metrics visibility
         toggleButton.addEventListener('click', () => {
             metricsVisible = !metricsVisible;
             metricsBar.classList.toggle('hidden', !metricsVisible);
             toggleButton.textContent = metricsVisible ? '📊' : '👁️';
         });
-        
-        // Initialize streaming
-        async function initializeStream() {
-            try {
-                console.log('🚀 Initializing stream...');
-                
-                // Get stream information from backend and trigger H.264 streaming
-                const streamResponse = await fetch('/api/camera/stream');
-                const streamResult = await streamResponse.json();
-                
-                const infoResponse = await fetch('/api/camera/stream/info');
-                const streamInfo = await infoResponse.json();
-                
-                console.log('📡 Stream info:', streamInfo);
-                
-                if (!streamInfo.camera_available) {
-                    showError('Camera not available');
-                    return;
-                }
-                
-                // Try H.264 streams (WebRTC -> HLS) 
-                if (streamInfo.streams.h264) {
-                    // Try WebRTC first
-                    if (await tryWebRTC(streamInfo.streams.h264.webrtc)) {
-                        currentProtocol = 'WebRTC';
-                        return;
-                    }
-                    
-                    // Fallback to HLS
-                    if (await tryHLS(streamInfo.streams.h264.hls)) {
-                        currentProtocol = 'HLS';
-                        return;
-                    }
-                    
-                    // H.264 failed
-                    showError('H.264 streaming failed. Check MediaMTX service.');
-                } else {
-                    showError('No streaming protocols available');
-                }
-                
-            } catch (error) {
-                console.error('❌ Failed to initialize stream:', error);
-                showError('Failed to initialize stream');
+
+        // WebCodecs Player (Tier 1 - Primary)
+        class WebCodecsPlayer {
+            constructor() {
+                this.decoder = null;
+                this.websocket = null;
+                this.canvas = videoCanvas;
+                this.ctx = this.canvas.getContext('2d');
+                this.connected = false;
+                this.frameQueue = [];
+                this.isDecoding = false;
             }
-        }
-        
-        // Try WebRTC streaming
-        async function tryWebRTC(whepUrl) {
-            if (!window.RTCPeerConnection) {
-                console.log('⚠️  WebRTC not supported');
+
+            async initialize() {
+                // Test WebCodecs support
+                if (!('VideoDecoder' in window)) {
+                    throw new Error('WebCodecs not supported');
+                }
+
+                try {
+                    // Initialize decoder
+                    this.decoder = new VideoDecoder({
+                        output: this.handleFrame.bind(this),
+                        error: this.handleError.bind(this)
+                    });
+
+                    // Configure decoder for H.264 High Profile
+                    await this.decoder.configure({
+                        codec: 'avc1.64001f',  // H.264 High Profile Level 3.1
+                        optimizeForLatency: true,
+                        hardwareAcceleration: 'prefer-hardware'
+                    });
+
+                    // Connect WebSocket
+                    await this.connectWebSocket();
+
+                    console.log('✅ WebCodecs decoder initialized');
+                    return true;
+                } catch (error) {
+                    console.error('❌ WebCodecs initialization failed:', error);
+                    throw error;
+                }
+            }
+
+            async connectWebSocket() {
+                return new Promise((resolve, reject) => {
+                    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${wsProtocol}//${location.host}/ws`;
+                    
+                    console.log('🔌 Connecting to WebSocket:', wsUrl);
+                    
+                    this.websocket = new WebSocket(wsUrl);
+                    this.websocket.binaryType = 'arraybuffer';
+
+                    this.websocket.onopen = () => {
+                        console.log('✅ WebSocket connected');
+                        this.connected = true;
+                        resolve();
+                    };
+
+                    this.websocket.onmessage = (event) => {
+                        if (typeof event.data === 'string') {
+                            // Handle control messages
+                            const message = JSON.parse(event.data);
+                            if (message.type === 'keepalive') {
+                                this.websocket.send('{"type":"pong"}');
+                            }
+                        } else {
+                            // Handle H.264 frame data
+                            this.processH264Frame(event.data);
+                        }
+                    };
+
+                    this.websocket.onerror = (error) => {
+                        console.error('❌ WebSocket error:', error);
+                        reject(error);
+                    };
+
+                    this.websocket.onclose = () => {
+                        console.log('🔌 WebSocket disconnected');
+                        this.connected = false;
+                        setTimeout(() => this.reconnect(), 2000);
+                    };
+                });
+            }
+
+            processH264Frame(data) {
+                try {
+                    frameCount++;
+                    const now = Date.now();
+                    
+                    // Calculate latency (approximate)
+                    const latency = now - lastFrameTime;
+                    lastFrameTime = now;
+
+                    // Create EncodedVideoChunk
+                    const chunk = new EncodedVideoChunk({
+                        type: this.isKeyFrame(data) ? 'key' : 'delta',
+                        timestamp: performance.now() * 1000, // microseconds
+                        data: data
+                    });
+
+                    // Decode immediately for minimal latency
+                    this.decoder.decode(chunk);
+
+                    // Update metrics
+                    document.getElementById('frameCount').textContent = frameCount;
+                    document.getElementById('latency').textContent = `${latency}ms`;
+                    
+                } catch (error) {
+                    console.error('❌ Frame processing error:', error);
+                }
+            }
+
+            isKeyFrame(data) {
+                // Simple NAL unit detection for keyframes
+                const view = new Uint8Array(data);
+                for (let i = 0; i < view.length - 4; i++) {
+                    if (view[i] === 0x00 && view[i + 1] === 0x00 && 
+                        view[i + 2] === 0x00 && view[i + 3] === 0x01) {
+                        const nalType = view[i + 4] & 0x1F;
+                        return nalType === 5; // IDR frame
+                    }
+                }
                 return false;
             }
-            
-            try {
-                console.log('🔗 Trying WebRTC...');
-                
-                // Create RTCPeerConnection with proper ICE configuration
-                webrtcConnection = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-                });
-                
-                // Handle incoming stream
-                webrtcConnection.ontrack = (event) => {
-                    console.log('📺 WebRTC stream received');
-                    webrtcStream.srcObject = event.streams[0];
-                    showStream('webrtc');
-                };
-                
-                // Add a transceiver to receive video
-                webrtcConnection.addTransceiver('video', { direction: 'recvonly' });
-                
-                // Create offer and connect to MediaMTX WHEP endpoint
-                const offer = await webrtcConnection.createOffer();
-                await webrtcConnection.setLocalDescription(offer);
-                
-                const response = await fetch(whepUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/sdp' },
-                    body: offer.sdp
-                });
-                
-                if (response.ok) {
-                    const answer = await response.text();
-                    await webrtcConnection.setRemoteDescription({
-                        type: 'answer',
-                        sdp: answer
-                    });
-                    
-                    console.log('✅ WebRTC connected');
-                    return true;
-                } else {
-                    const errorText = await response.text();
-                    console.error('❌ WebRTC error:', response.status, errorText);
-                }
-                
-            } catch (error) {
-                console.log('❌ WebRTC failed:', error);
-                if (webrtcConnection) {
-                    webrtcConnection.close();
-                    webrtcConnection = null;
-                }
-            }
-            
-            return false;
-        }
-        
-        // Try HLS streaming
-        async function tryHLS(hlsUrl) {
-            try {
-                console.log('🎬 Trying HLS...');
-                
-                // Check if browser supports HLS natively
-                if (hlsStream.canPlayType('application/vnd.apple.mpegurl')) {
-                    console.log('📱 Using native HLS support');
-                    document.getElementById('hlsSource').src = hlsUrl;
-                    hlsStream.load();
-                    showStream('hls');
-                    return true;
-                }
-                
-                // Try HLS.js if available
-                if (window.Hls && Hls.isSupported()) {
-                    console.log('📚 Using HLS.js');
-                    const hls = new Hls();
-                    hls.loadSource(hlsUrl);
-                    hls.attachMedia(hlsStream);
-                    showStream('hls');
-                    return true;
-                }
-                
-                console.log('⚠️  HLS not supported');
-                
-            } catch (error) {
-                console.log('❌ HLS failed:', error);
-            }
-            
-            return false;
-        }
-        
-        // Show specific stream element
-        function showStream(type) {
-            // Hide all streams
-            webrtcStream.style.display = 'none';
-            hlsStream.style.display = 'none';
-            
-            // Show selected stream
-            switch (type) {
-                case 'webrtc':
-                    webrtcStream.style.display = 'block';
-                    break;
-                case 'hls':
-                    hlsStream.style.display = 'block';
-                    break;
-            }
-        }
-        
-        // Show error message
-        function showError(message) {
-            console.error('❌', message);
-            // You could show an error overlay here
-        }
-        
-        // Start metrics monitoring
-        streamMetrics.start();
-        
-        // Update metrics display
-        async function updateMetricsDisplay() {
-            try {
-                const metrics = await getAllMetrics();
-                
-                // Update protocol display
-                document.getElementById('protocol').textContent = currentProtocol || '--';
-                
-                // Update FPS (WebRTC/HLS have built-in metrics)
-                const actualFpsElement = document.getElementById('actualFps');
-                actualFpsElement.textContent = 'N/A';
-                
-                // Update other metrics
-                document.getElementById('latency').textContent = 
-                    metrics.latency_ms ? `${metrics.latency_ms}ms` : '--ms';
-                
-                // Update status indicator
-                const indicator = document.getElementById('statusIndicator');
-                if (metrics.backend?.camera_available && currentProtocol) {
-                    indicator.className = 'status-indicator';
-                } else if (metrics.backend?.camera_available) {
-                    indicator.className = 'status-indicator warning';
-                } else {
-                    indicator.className = 'status-indicator error';
-                }
-                
-                // Update backend metrics
-                if (metrics.backend) {
-                    if (metrics.backend.resolution) {
-                        document.getElementById('resolution').textContent = 
-                            `${metrics.backend.resolution.width}×${metrics.backend.resolution.height}`;
+
+            handleFrame(frame) {
+                try {
+                    // Resize canvas if needed
+                    if (this.canvas.width !== frame.displayWidth || 
+                        this.canvas.height !== frame.displayHeight) {
+                        this.canvas.width = frame.displayWidth;
+                        this.canvas.height = frame.displayHeight;
                     }
-                    document.getElementById('targetFps').textContent = metrics.backend.target_fps || '--';
+
+                    // Draw frame to canvas
+                    this.ctx.drawImage(frame, 0, 0);
+                    frame.close();
+
+                    // Calculate actual FPS
+                    fpsCounter++;
                     
-                    // Update bitrate display
-                    const qualityLabel = document.getElementById('qualityLabel');
-                    const qualityValue = document.getElementById('quality');
-                    
-                    qualityLabel.textContent = 'Bitrate:';
-                    const bitrateMbps = (metrics.backend.h264_bitrate || 0) / 1000000;
-                    qualityValue.textContent = `${bitrateMbps}Mbps`;
+                } catch (error) {
+                    console.error('❌ Frame render error:', error);
+                    frame.close();
                 }
+            }
+
+            handleError(error) {
+                console.error('❌ WebCodecs decoder error:', error);
+                this.reconnect();
+            }
+
+            async reconnect() {
+                if (this.connected) return;
                 
-            } catch (error) {
-                console.warn('Failed to update metrics display:', error);
+                console.log('🔄 Attempting to reconnect...');
+                try {
+                    await this.connectWebSocket();
+                } catch (error) {
+                    console.error('❌ Reconnection failed:', error);
+                    setTimeout(() => this.reconnect(), 5000);
+                }
+            }
+
+            cleanup() {
+                if (this.websocket) {
+                    this.websocket.close();
+                }
+                if (this.decoder) {
+                    this.decoder.close();
+                }
+                this.connected = false;
             }
         }
-        
-        // Initialize everything
-        initializeStream();
-        setInterval(updateMetricsDisplay, 1000);
-        setTimeout(updateMetricsDisplay, 500);
+
+        // MSE Player (Tier 2 - Fallback)
+        class MSEPlayer {
+            constructor() {
+                this.video = fallbackVideo;
+                this.mediaSource = null;
+                this.sourceBuffer = null;
+                this.websocket = null;
+            }
+
+            async initialize() {
+                if (!('MediaSource' in window)) {
+                    throw new Error('MSE not supported');
+                }
+
+                try {
+                    this.mediaSource = new MediaSource();
+                    this.video.src = URL.createObjectURL(this.mediaSource);
+
+                    await new Promise((resolve, reject) => {
+                        this.mediaSource.addEventListener('sourceopen', resolve);
+                        this.mediaSource.addEventListener('error', reject);
+                    });
+
+                    // For MSE, we'd need to convert H.264 Annex-B to fMP4
+                    // This is a simplified placeholder
+                    throw new Error('MSE H.264 conversion not implemented in this demo');
+                    
+                } catch (error) {
+                    console.error('❌ MSE initialization failed:', error);
+                    throw error;
+                }
+            }
+
+            cleanup() {
+                if (this.websocket) {
+                    this.websocket.close();
+                }
+            }
+        }
+
+        // Broadway Player (Tier 3 - Universal Fallback)
+        class BroadwayPlayer {
+            constructor() {
+                this.canvas = videoCanvas;
+            }
+
+            async initialize() {
+                // Broadway decoder would be loaded here
+                // This is a placeholder for the WebAssembly H.264 decoder
+                throw new Error('Broadway decoder not implemented in this demo');
+            }
+
+            cleanup() {
+                // Cleanup Broadway resources
+            }
+        }
+
+        // Player selection and initialization
+        async function initializePlayer() {
+            loadingOverlay.style.display = 'block';
+            
+            try {
+                // Try WebCodecs first (Tier 1)
+                console.log('🎯 Attempting WebCodecs (Tier 1)...');
+                try {
+                    currentPlayer = new WebCodecsPlayer();
+                    await currentPlayer.initialize();
+                    document.getElementById('decoder').textContent = 'WebCodecs (HW)';
+                    console.log('✅ WebCodecs player active');
+                    return;
+                } catch (error) {
+                    console.log('❌ WebCodecs failed:', error.message);
+                }
+
+                // Try MSE (Tier 2)
+                console.log('🎯 Attempting MSE (Tier 2)...');
+                try {
+                    currentPlayer = new MSEPlayer();
+                    await currentPlayer.initialize();
+                    document.getElementById('decoder').textContent = 'MSE';
+                    fallbackVideo.style.display = 'block';
+                    videoCanvas.style.display = 'none';
+                    console.log('✅ MSE player active');
+                    return;
+                } catch (error) {
+                    console.log('❌ MSE failed:', error.message);
+                }
+
+                // Try Broadway (Tier 3)
+                console.log('🎯 Attempting Broadway (Tier 3)...');
+                try {
+                    currentPlayer = new BroadwayPlayer();
+                    await currentPlayer.initialize();
+                    document.getElementById('decoder').textContent = 'Broadway (SW)';
+                    console.log('✅ Broadway player active');
+                    return;
+                } catch (error) {
+                    console.log('❌ Broadway failed:', error.message);
+                }
+
+                throw new Error('No compatible decoder available');
+
+            } catch (error) {
+                console.error('❌ All decoders failed:', error);
+                showError('No compatible H.264 decoder available. Please use a modern browser.');
+            } finally {
+                loadingOverlay.style.display = 'none';
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            errorOverlay.style.display = 'block';
+            document.getElementById('statusIndicator').className = 'status-indicator error';
+        }
+
+        // FPS calculation
+        function startFPSCounter() {
+            fpsInterval = setInterval(() => {
+                document.getElementById('actualFps').textContent = fpsCounter;
+                fpsCounter = 0;
+            }, 1000);
+        }
+
+        // Initialize metrics monitoring
+        if (typeof streamMetrics !== 'undefined') {
+            streamMetrics.start();
+        }
+
+        // Update status indicator
+        function updateStatus() {
+            const indicator = document.getElementById('statusIndicator');
+            if (currentPlayer && currentPlayer.connected) {
+                indicator.className = 'status-indicator';
+            } else if (currentPlayer) {
+                indicator.className = 'status-indicator warning';
+            } else {
+                indicator.className = 'status-indicator error';
+            }
+        }
+
+        // Start everything
+        initializePlayer();
+        startFPSCounter();
+        setInterval(updateStatus, 1000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (currentPlayer) {
+                currentPlayer.cleanup();
+            }
+            if (fpsInterval) {
+                clearInterval(fpsInterval);
+            }
+        });
     </script>
 </body>
 </html>

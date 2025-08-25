@@ -54,16 +54,15 @@ class Config:
     host: str = "0.0.0.0"
     port: int = 8000
     
-    # Camera stream parameters
-    stream_width: int = 800
-    stream_height: int = 600
-    stream_fps: int = 15
+    # Camera stream parameters (optimized for WebCodecs)
+    stream_width: int = 1200  # Default 1200x900 for good quality
+    stream_height: int = 900
+    stream_fps: int = 30      # 30fps for smooth WebCodecs playback
     
-    # H.264 streaming via MediaMTX
-    h264_bitrate: int = 1000000  # 1 Mbps
-    mediamtx_udp_port: int = 8891
-    mediamtx_webrtc_port: int = 8443
-    mediamtx_hls_port: int = 8888
+    # H.264 streaming via WebSocket for WebCodecs
+    h264_bitrate: int = 2000000  # 2 Mbps for good quality
+    websocket_buffer_size: int = 5  # Max frames in buffer
+    max_concurrent_viewers: int = 10
     
     # Camera hardware settings
     camera_hflip: bool = False
@@ -85,15 +84,14 @@ def get_config() -> Config:
     Environment Variables:
         CAMERA_HOST: Override server host address
         CAMERA_PORT: Override server port number
-        STREAM_WIDTH: Override video stream width
-        STREAM_HEIGHT: Override video stream height
-        STREAM_FPS: Override video stream framerate
+        VIDEO_WIDTH: Override video stream width (WebCodecs)
+        VIDEO_HEIGHT: Override video stream height (WebCodecs)
+        VIDEO_FRAMERATE: Override video stream framerate (WebCodecs)
         
-        # H.264 MediaMTX settings
-        H264_BITRATE: Override H.264 bitrate in bps (e.g., "2000000" for 2Mbps)
-        MEDIAMTX_UDP_PORT: UDP port for streaming to MediaMTX
-        MEDIAMTX_WEBRTC_PORT: MediaMTX WebRTC port
-        MEDIAMTX_HLS_PORT: MediaMTX HLS port
+        # WebCodecs H.264 WebSocket settings
+        VIDEO_BITRATE: Override H.264 bitrate in bps (e.g., "2000000" for 2Mbps)
+        WEBSOCKET_BUFFER_SIZE: Max frames buffered (default: 5)
+        MAX_CONCURRENT_VIEWERS: Max WebSocket connections (default: 10)
         CAMERA_HFLIP: Enable horizontal flip ("true"/"false")
         CAMERA_VFLIP: Enable vertical flip ("true"/"false")
     
@@ -110,17 +108,16 @@ def get_config() -> Config:
             load_dotenv()
     
     return Config(
-        host=os.getenv("CAMERA_HOST", "0.0.0.0"),
-        port=int(os.getenv("CAMERA_PORT", "8000")),
-        stream_width=int(os.getenv("STREAM_WIDTH", "800")),
-        stream_height=int(os.getenv("STREAM_HEIGHT", "600")),
-        stream_fps=int(os.getenv("STREAM_FPS", "15")),
+        host=os.getenv("WEBSOCKET_HOST", os.getenv("CAMERA_HOST", "0.0.0.0")),
+        port=int(os.getenv("WEBSOCKET_PORT", os.getenv("CAMERA_PORT", "8000"))),
+        stream_width=int(os.getenv("VIDEO_WIDTH", "1200")),
+        stream_height=int(os.getenv("VIDEO_HEIGHT", "900")),
+        stream_fps=int(os.getenv("VIDEO_FRAMERATE", "30")),
         
-        # H.264 MediaMTX settings
-        h264_bitrate=int(os.getenv("H264_BITRATE", "1000000")),
-        mediamtx_udp_port=int(os.getenv("MEDIAMTX_UDP_PORT", "8891")),
-        mediamtx_webrtc_port=int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8443")),
-        mediamtx_hls_port=int(os.getenv("MEDIAMTX_HLS_PORT", "8888")),
+        # WebCodecs H.264 WebSocket settings
+        h264_bitrate=int(os.getenv("VIDEO_BITRATE", "2000000")),
+        websocket_buffer_size=int(os.getenv("WEBSOCKET_BUFFER_SIZE", "5")),
+        max_concurrent_viewers=int(os.getenv("MAX_CONCURRENT_VIEWERS", "10")),
         
         camera_hflip=os.getenv("CAMERA_HFLIP", "false").lower() == "true",
         camera_vflip=os.getenv("CAMERA_VFLIP", "false").lower() == "true"
@@ -137,11 +134,11 @@ def print_config(config: Config):
     Args:
         config: Configuration instance to display
     """
-    print("📷 Camera Streaming Configuration:")
+    print("📷 WebCodecs Camera Streaming Configuration:")
     print(f"   Server: {config.host}:{config.port}")
     print(f"   Stream: {config.stream_width}x{config.stream_height} @ {config.stream_fps}fps")
     
     print(f"   H.264: {config.h264_bitrate//1000000}Mbps bitrate")
-    print(f"   MediaMTX: WebRTC:{config.mediamtx_webrtc_port}, HLS:{config.mediamtx_hls_port}")
+    print(f"   WebSocket: buffer_size={config.websocket_buffer_size}, max_viewers={config.max_concurrent_viewers}")
     
     print(f"   Transforms: hflip={config.camera_hflip}, vflip={config.camera_vflip}")
