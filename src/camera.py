@@ -77,22 +77,29 @@ class StreamingOutput(io.BufferedIOBase):
     
     def write(self, buf):
         """Send raw H.264 Annex B stream directly to WebSocket clients."""
+        # Don't store frame data - we just need to notify condition waiters
         with self.condition:
-            self.frame = buf
             self.condition.notify_all()
         
         if self.websocket_manager and buf and self.loop:
             try:
                 # Send raw H.264 data in Annex B format directly
-                # WebCodecs will extract SPS/PPS from the stream
-                asyncio.run_coroutine_threadsafe(
+                # Properly handle the Future to prevent memory leaks
+                future = asyncio.run_coroutine_threadsafe(
                     self.websocket_manager.broadcast_binary(buf), 
                     self.loop
                 )
+                # Don't wait for result, but ensure we don't leak futures
+                future.add_done_callback(lambda f: f.exception())
                 
                 self.frame_count += 1
                 if self.frame_count % 60 == 0:
-                    print(f"📺 H.264 frames sent: {self.frame_count}")
+                    # Add basic memory monitoring
+                    import psutil
+                    import os
+                    process = psutil.Process(os.getpid())
+                    memory_mb = process.memory_info().rss / 1024 / 1024
+                    print(f"📺 H.264 frames sent: {self.frame_count}, Memory: {memory_mb:.1f}MB")
                     
             except Exception as e:
                 if self.frame_count % 100 == 0:
