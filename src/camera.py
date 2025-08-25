@@ -65,17 +65,23 @@ from src.config import Config
 
 
 class StreamingOutput(io.BufferedIOBase):
-    """Ultra-simple H.264 streaming output - sends data directly to WebSocket clients."""
+    """H.264 streaming output for WebSocket clients - follows official picamera2 pattern."""
     
     def __init__(self, websocket_manager):
         super().__init__()
         self.websocket_manager = websocket_manager
         self.frame_count = 0
+        self.frame = None
+        self.condition = Condition()
     
     def write(self, buf):
-        """Send H.264 data directly to all WebSocket clients."""
+        """Store frame and broadcast to WebSocket clients."""
+        with self.condition:
+            self.frame = buf
+            self.condition.notify_all()
+        
+        # Send H.264 data directly to WebSocket clients
         if self.websocket_manager and buf:
-            # Send raw H.264 data to all connected clients
             asyncio.create_task(self.websocket_manager.broadcast_binary(buf))
             
             self.frame_count += 1
@@ -353,10 +359,11 @@ class Camera:
                 # Create simple H.264 encoder
                 encoder = H264Encoder(bitrate=self.config.h264_bitrate)
                 
-                # Create direct streaming output
-                self.h264_output = StreamingOutput(websocket_manager)
+                # Create streaming output and wrap with FileOutput
+                streaming_output = StreamingOutput(websocket_manager)
+                self.h264_output = FileOutput(streaming_output)
                 
-                # Start recording - H.264 data goes directly to WebSocket clients
+                # Start recording - H.264 data goes via FileOutput to StreamingOutput to WebSocket clients
                 self.camera.start_recording(encoder, self.h264_output)
                 self.h264_streaming = True
                 
