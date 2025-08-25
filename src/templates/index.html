@@ -95,8 +95,14 @@
             color: #f87171;
         }
     </style>
-    <!-- Include jMuxer from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/jmuxer@4.0.1/dist/jmuxer.min.js"></script>
+    <!-- Include jMuxer from CDN with fallback -->
+    <script src="https://unpkg.com/jmuxer@2.0.7/dist/jmuxer.min.js"></script>
+    <script>
+        // Fallback CDN if primary fails
+        if (typeof JMuxer === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.7/dist/jmuxer.min.js"><\/script>');
+        }
+    </script>
 </head>
 <body>
     <div class="video-container">
@@ -305,8 +311,16 @@
         // Initialize the player when page loads
         let player = null;
         
-        document.addEventListener('DOMContentLoaded', () => {
+        function initializePlayer() {
             console.log('🎬 Starting jMuxer H.264 stream player');
+            
+            // Check if jMuxer is available
+            if (typeof JMuxer === 'undefined') {
+                console.error('❌ JMuxer library not loaded');
+                document.getElementById('status').textContent = 'JMuxer library failed to load';
+                document.getElementById('status').className = 'status-indicator status-error';
+                return;
+            }
             
             try {
                 player = new JMuxerPlayer();
@@ -315,6 +329,11 @@
                 document.getElementById('status').textContent = 'Failed to initialize player';
                 document.getElementById('status').className = 'status-indicator status-error';
             }
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            // Wait a bit for jMuxer to load, then initialize
+            setTimeout(initializePlayer, 100);
         });
         
         // Cleanup on page unload
