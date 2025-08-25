@@ -248,6 +248,8 @@
                 this.isDecoding = false;
                 this.decoderConfigured = false;
                 this.frameCount = 0;
+                this.spsData = null;
+                this.ppsData = null;
             }
 
             async initialize() {
@@ -257,25 +259,16 @@
                 }
 
                 try {
-                    // Initialize decoder
+                    // Initialize decoder (but don't configure yet)
                     this.decoder = new VideoDecoder({
                         output: this.handleFrame.bind(this),
                         error: this.handleError.bind(this)
                     });
 
-                    // Configure for H.264 Annex B format (SPS/PPS in stream)
-                    await this.decoder.configure({
-                        codec: 'avc1.42001f',  // H.264 Baseline Profile Level 3.1
-                        optimizeForLatency: true,
-                        hardwareAcceleration: 'prefer-hardware'
-                    });
-                    
-                    this.decoderConfigured = true;
-
                     // Connect WebSocket to receive H.264 stream
                     await this.connectWebSocket();
 
-                    console.log('✅ WebCodecs decoder configured for Annex B H.264');
+                    console.log('✅ WebCodecs decoder initialized, waiting for SPS/PPS');
                     return true;
                 } catch (error) {
                     console.error('❌ WebCodecs initialization failed:', error);
@@ -301,7 +294,7 @@
 
                     this.websocket.onmessage = (event) => {
                         if (typeof event.data === 'string') {
-                            // Handle control messages (no config needed for Annex B)
+                            // Handle control messages
                             try {
                                 const message = JSON.parse(event.data);
                                 if (message.type === 'keepalive') {
@@ -312,7 +305,12 @@
                             }
                         } else {
                             // Handle H.264 Annex B stream data
-                            this.processH264Frame(event.data);
+                            // Extract SPS/PPS from first frame if needed
+                            if (!this.decoderConfigured) {
+                                this.extractAndConfigure(event.data);
+                            } else {
+                                this.processH264Frame(event.data);
+                            }
                         }
                     };
 
@@ -329,6 +327,127 @@
                 });
             }
 
+
+            extractAndConfigure(data) {
+                try {
+                    const view = new Uint8Array(data);
+                    
+                    // Find NAL units by looking for start codes
+                    let sps = null;
+                    let pps = null;
+                    
+                    for (let i = 0; i < view.length - 4; i++) {
+                        // Check for start code (0x000001 or 0x00000001)
+                        if (view[i] === 0 && view[i+1] === 0 && 
+                            ((view[i+2] === 1) || (view[i+2] === 0 && view[i+3] === 1))) {
+                            
+                            const startOffset = (view[i+2] === 1) ? i + 3 : i + 4;
+                            if (startOffset < view.length) {
+                                const nalType = view[startOffset] & 0x1F;
+                                
+                                // Find the end of this NAL unit
+                                let endOffset = view.length;
+                                for (let j = startOffset + 1; j < view.length - 3; j++) {
+                                    if (view[j] === 0 && view[j+1] === 0 && 
+                                        (view[j+2] === 1 || (view[j+2] === 0 && view[j+3] === 1))) {
+                                        endOffset = j;
+                                        break;
+                                    }
+                                }
+                                
+                                // SPS (type 7)
+                                if (nalType === 7 && !sps) {
+                                    sps = view.slice(startOffset, endOffset);
+                                    console.log('📄 Found SPS:', sps.length, 'bytes');
+                                }
+                                // PPS (type 8)
+                                else if (nalType === 8 && !pps) {
+                                    pps = view.slice(startOffset, endOffset);
+                                    console.log('📄 Found PPS:', pps.length, 'bytes');
+                                }
+                                
+                                // If we have both, configure decoder
+                                if (sps && pps) {
+                                    this.configureWithSPSPPS(sps, pps);
+                                    // Also process this frame
+                                    this.processH264Frame(data);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // If no SPS/PPS found, try basic configuration
+                    console.log('⚠️ No SPS/PPS found in frame, trying basic config');
+                    this.configureBasic();
+                    
+                } catch (error) {
+                    console.error('❌ SPS/PPS extraction error:', error);
+                    this.configureBasic();
+                }
+            }
+            
+            async configureWithSPSPPS(sps, pps) {
+                try {
+                    // Extract profile, level from SPS
+                    const profile = sps[1];
+                    const level = sps[3];
+                    
+                    // Create codec string
+                    const codecString = `avc1.${profile.toString(16).padStart(2, '0')}00${level.toString(16).padStart(2, '0')}`;
+                    console.log('🔧 Configuring decoder with codec:', codecString);
+                    
+                    // Create description with SPS and PPS
+                    const description = new Uint8Array(sps.length + pps.length + 8);
+                    let offset = 0;
+                    
+                    // Add SPS with length prefix
+                    description[offset++] = 0;
+                    description[offset++] = 0;
+                    description[offset++] = (sps.length >> 8) & 0xFF;
+                    description[offset++] = sps.length & 0xFF;
+                    description.set(sps, offset);
+                    offset += sps.length;
+                    
+                    // Add PPS with length prefix
+                    description[offset++] = 0;
+                    description[offset++] = 0;
+                    description[offset++] = (pps.length >> 8) & 0xFF;
+                    description[offset++] = pps.length & 0xFF;
+                    description.set(pps, offset);
+                    
+                    await this.decoder.configure({
+                        codec: codecString,
+                        description: description,
+                        optimizeForLatency: true,
+                        hardwareAcceleration: 'prefer-hardware'
+                    });
+                    
+                    this.decoderConfigured = true;
+                    console.log('✅ Decoder configured with SPS/PPS');
+                    
+                } catch (error) {
+                    console.error('❌ Configuration with SPS/PPS failed:', error);
+                    this.configureBasic();
+                }
+            }
+            
+            async configureBasic() {
+                try {
+                    // Fallback to basic configuration
+                    await this.decoder.configure({
+                        codec: 'avc1.42001f',  // H.264 Baseline Profile Level 3.1
+                        optimizeForLatency: true,
+                        hardwareAcceleration: 'prefer-hardware'
+                    });
+                    
+                    this.decoderConfigured = true;
+                    console.log('✅ Decoder configured with basic settings');
+                    
+                } catch (error) {
+                    console.error('❌ Basic configuration failed:', error);
+                }
+            }
 
             processH264Frame(data) {
                 try {
