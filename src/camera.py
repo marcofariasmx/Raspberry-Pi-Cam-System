@@ -21,8 +21,10 @@ import time
 import threading
 import asyncio
 import json
+import os
 from threading import Condition
 from typing import Generator, Optional, Any
+
 
 try:
     from picamera2 import Picamera2
@@ -72,7 +74,6 @@ class StreamingOutput(io.BufferedIOBase):
         self.websocket_manager = websocket_manager
         self.loop = loop
         self.frame_count = 0
-        self.frame = None
         self.condition = Condition()
     
     def write(self, buf):
@@ -93,13 +94,6 @@ class StreamingOutput(io.BufferedIOBase):
                 future.add_done_callback(lambda f: f.exception())
                 
                 self.frame_count += 1
-                if self.frame_count % 60 == 0:
-                    # Add basic memory monitoring
-                    import psutil
-                    import os
-                    process = psutil.Process(os.getpid())
-                    memory_mb = process.memory_info().rss / 1024 / 1024
-                    print(f"📺 H.264 frames sent: {self.frame_count}, Memory: {memory_mb:.1f}MB")
                     
             except Exception as e:
                 if self.frame_count % 100 == 0:
