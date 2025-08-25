@@ -99,6 +99,22 @@ class ConnectionManager:
         # Clean up disconnected clients
         for conn in disconnected:
             await self.disconnect(conn)
+    
+    async def broadcast_text(self, data: str):
+        if not self.active_connections:
+            return
+        
+        # Send to all clients, remove any that fail
+        disconnected = []
+        for connection in self.active_connections[:]:
+            try:
+                await connection.send_text(data)
+            except Exception:
+                disconnected.append(connection)
+        
+        # Clean up disconnected clients
+        for conn in disconnected:
+            await self.disconnect(conn)
 
 manager = ConnectionManager()
 

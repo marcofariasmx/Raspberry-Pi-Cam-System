@@ -65,7 +65,7 @@ from src.config import Config
 
 
 class StreamingOutput(io.BufferedIOBase):
-    """H.264 streaming output for WebSocket clients - thread-safe asyncio communication."""
+    """H.264 streaming output for WebSocket clients - extracts and sends SPS/PPS configs."""
     
     def __init__(self, websocket_manager, loop=None):
         super().__init__()
@@ -74,17 +74,97 @@ class StreamingOutput(io.BufferedIOBase):
         self.frame_count = 0
         self.frame = None
         self.condition = Condition()
+        self.sps_sent = False
+        self.pps_sent = False
+        self.sps_data = None
+        self.pps_data = None
+    
+    def find_nal_units(self, data):
+        """Find NAL units in H.264 stream by looking for start codes."""
+        nal_units = []
+        i = 0
+        while i < len(data) - 4:
+            # Look for start code (0x00000001 or 0x000001)
+            if data[i:i+4] == b'\x00\x00\x00\x01':
+                start = i + 4
+                # Find next start code or end of data
+                j = i + 4
+                while j < len(data) - 4:
+                    if data[j:j+4] == b'\x00\x00\x00\x01' or data[j:j+3] == b'\x00\x00\x01':
+                        nal_units.append((start, j))
+                        break
+                    j += 1
+                else:
+                    # Last NAL unit
+                    nal_units.append((start, len(data)))
+                i = j
+            elif data[i:i+3] == b'\x00\x00\x01':
+                start = i + 3
+                # Find next start code or end of data
+                j = i + 3
+                while j < len(data) - 4:
+                    if data[j:j+4] == b'\x00\x00\x00\x01' or data[j:j+3] == b'\x00\x00\x01':
+                        nal_units.append((start, j))
+                        break
+                    j += 1
+                else:
+                    # Last NAL unit
+                    nal_units.append((start, len(data)))
+                i = j
+            else:
+                i += 1
+        return nal_units
     
     def write(self, buf):
-        """Store frame and broadcast to WebSocket clients (thread-safe)."""
+        """Parse H.264 stream, extract SPS/PPS, and broadcast to WebSocket clients."""
         with self.condition:
             self.frame = buf
             self.condition.notify_all()
         
-        # Send H.264 data to WebSocket clients using thread-safe method
         if self.websocket_manager and buf and self.loop:
             try:
-                # Schedule coroutine on the main event loop from any thread
+                # Parse NAL units to find SPS/PPS
+                nal_units = self.find_nal_units(buf)
+                
+                for start, end in nal_units:
+                    if start < len(buf):
+                        nal_type = buf[start] & 0x1F  # NAL unit type is last 5 bits
+                        
+                        # SPS (Sequence Parameter Set) - NAL type 7
+                        if nal_type == 7 and not self.sps_sent:
+                            self.sps_data = buf[start:end]
+                            config_msg = {
+                                "type": "config",
+                                "config_type": "sps",
+                                "data": list(self.sps_data),
+                                "length": len(self.sps_data)
+                            }
+                            # Send SPS as JSON config message
+                            asyncio.run_coroutine_threadsafe(
+                                self.websocket_manager.broadcast_text(json.dumps(config_msg)),
+                                self.loop
+                            )
+                            self.sps_sent = True
+                            print(f"📄 Sent SPS config ({len(self.sps_data)} bytes)")
+                        
+                        # PPS (Picture Parameter Set) - NAL type 8
+                        elif nal_type == 8 and not self.pps_sent:
+                            self.pps_data = buf[start:end]
+                            config_msg = {
+                                "type": "config",
+                                "config_type": "pps",
+                                "data": list(self.pps_data),
+                                "length": len(self.pps_data)
+                            }
+                            # Send PPS as JSON config message
+                            asyncio.run_coroutine_threadsafe(
+                                self.websocket_manager.broadcast_text(json.dumps(config_msg)),
+                                self.loop
+                            )
+                            self.pps_sent = True
+                            print(f"📄 Sent PPS config ({len(self.pps_data)} bytes)")
+                
+                # Always send the raw H.264 data as well
                 asyncio.run_coroutine_threadsafe(
                     self.websocket_manager.broadcast_binary(buf), 
                     self.loop
@@ -95,8 +175,7 @@ class StreamingOutput(io.BufferedIOBase):
                     print(f"📺 H.264 frames sent: {self.frame_count}")
                     
             except Exception as e:
-                # Silently handle broadcast errors to avoid breaking the encoder
-                if self.frame_count % 100 == 0:  # Log occasionally
+                if self.frame_count % 100 == 0:
                     print(f"⚠️ WebSocket broadcast error (frame {self.frame_count}): {e}")
                 
         return len(buf)
