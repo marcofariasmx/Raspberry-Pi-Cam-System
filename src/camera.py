@@ -65,28 +65,39 @@ from src.config import Config
 
 
 class StreamingOutput(io.BufferedIOBase):
-    """H.264 streaming output for WebSocket clients - follows official picamera2 pattern."""
+    """H.264 streaming output for WebSocket clients - thread-safe asyncio communication."""
     
-    def __init__(self, websocket_manager):
+    def __init__(self, websocket_manager, loop=None):
         super().__init__()
         self.websocket_manager = websocket_manager
+        self.loop = loop
         self.frame_count = 0
         self.frame = None
         self.condition = Condition()
     
     def write(self, buf):
-        """Store frame and broadcast to WebSocket clients."""
+        """Store frame and broadcast to WebSocket clients (thread-safe)."""
         with self.condition:
             self.frame = buf
             self.condition.notify_all()
         
-        # Send H.264 data directly to WebSocket clients
-        if self.websocket_manager and buf:
-            asyncio.create_task(self.websocket_manager.broadcast_binary(buf))
-            
-            self.frame_count += 1
-            if self.frame_count % 60 == 0:
-                print(f"📺 H.264 frames sent: {self.frame_count}")
+        # Send H.264 data to WebSocket clients using thread-safe method
+        if self.websocket_manager and buf and self.loop:
+            try:
+                # Schedule coroutine on the main event loop from any thread
+                asyncio.run_coroutine_threadsafe(
+                    self.websocket_manager.broadcast_binary(buf), 
+                    self.loop
+                )
+                
+                self.frame_count += 1
+                if self.frame_count % 60 == 0:
+                    print(f"📺 H.264 frames sent: {self.frame_count}")
+                    
+            except Exception as e:
+                # Silently handle broadcast errors to avoid breaking the encoder
+                if self.frame_count % 100 == 0:  # Log occasionally
+                    print(f"⚠️ WebSocket broadcast error (frame {self.frame_count}): {e}")
                 
         return len(buf)
 
@@ -359,8 +370,12 @@ class Camera:
                 # Create simple H.264 encoder
                 encoder = H264Encoder(bitrate=self.config.h264_bitrate)
                 
-                # Create streaming output and wrap with FileOutput
-                streaming_output = StreamingOutput(websocket_manager)
+                # Create streaming output with event loop and wrap with FileOutput
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                streaming_output = StreamingOutput(websocket_manager, loop)
                 self.h264_output = FileOutput(streaming_output)
                 
                 # Start recording - H.264 data goes via FileOutput to StreamingOutput to WebSocket clients
