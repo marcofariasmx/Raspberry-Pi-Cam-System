@@ -251,6 +251,7 @@
                 this.spsData = null;
                 this.ppsData = null;
                 this.timestamp = 0;
+                this.waitingForKeyframe = true;
             }
 
             async initialize() {
@@ -283,6 +284,9 @@
                     const wsUrl = `${wsProtocol}//${location.host}/ws`;
                     
                     console.log('🔌 Connecting to WebSocket:', wsUrl);
+                    
+                    // Reset keyframe waiting on new connection
+                    this.waitingForKeyframe = true;
                     
                     this.websocket = new WebSocket(wsUrl);
                     this.websocket.binaryType = 'arraybuffer';
@@ -331,11 +335,24 @@
 
             extractAndConfigure(data) {
                 try {
-                    // Since basic configuration works fine, just use that
-                    // SPS/PPS extraction is complex and not needed for working stream
-                    console.log('⚠️ Using basic decoder configuration (SPS/PPS extraction skipped)');
-                    this.configureBasic();
-                    // Also process this frame
+                    // Wait for first keyframe before configuring decoder
+                    if (this.waitingForKeyframe && !this.isKeyFrame(data)) {
+                        console.log('⏳ Waiting for keyframe to start decoding...');
+                        return;
+                    }
+                    
+                    if (this.waitingForKeyframe) {
+                        console.log('🔑 Found keyframe, configuring decoder');
+                        this.waitingForKeyframe = false;
+                    }
+                    
+                    // Configure decoder once we have a keyframe
+                    if (!this.decoderConfigured) {
+                        console.log('⚠️ Using basic decoder configuration (SPS/PPS extraction skipped)');
+                        await this.configureBasic();
+                    }
+                    
+                    // Process this frame
                     this.processH264Frame(data);
                     return;
                     
@@ -464,6 +481,11 @@
                         console.log('Decoder not ready, skipping frame');
                         return;
                     }
+                    
+                    // Skip frames if we're still waiting for keyframe
+                    if (this.waitingForKeyframe) {
+                        return;
+                    }
 
                     frameCount++;
                     const now = Date.now();
@@ -566,6 +588,7 @@
                     });
                     
                     this.decoderConfigured = false;
+                    this.waitingForKeyframe = true;  // Wait for keyframe after recovery
                     
                     // Reconfigure if we have SPS/PPS
                     if (this.spsData && this.ppsData) {
