@@ -20,6 +20,7 @@ import io
 import time
 import threading
 import asyncio
+import json
 from threading import Condition
 from typing import Generator, Optional, Any
 
@@ -119,14 +120,60 @@ class WebSocketH264Stream(io.BufferedIOBase):
                 nal_unit = bytes(buffer[start_pos:end_pos])
                 
                 if len(nal_unit) > 4:  # Valid NAL unit
-                    self._send_frame(nal_unit)
+                    self._process_nal_unit(nal_unit)
             
             # Keep the last incomplete NAL unit in memory buffer
             last_start = start_codes[-1]
             self._buffer = bytearray(buffer[last_start:])
     
-    def _send_frame(self, frame_data):
+    def _process_nal_unit(self, nal_unit):
+        """Process individual NAL unit and extract SPS/PPS if needed."""
+        if len(nal_unit) < 5:
+            return
+            
+        # Parse NAL unit header (after 0x00000001)
+        nal_header = nal_unit[4]
+        nal_type = nal_header & 0x1F
+        
+        # Track SPS (type 7) and PPS (type 8) for WebCodecs config
+        if nal_type == 7:  # SPS
+            print(f"📄 Found SPS NAL unit ({len(nal_unit)} bytes)")
+            self._send_config_frame('sps', nal_unit)
+        elif nal_type == 8:  # PPS  
+            print(f"📄 Found PPS NAL unit ({len(nal_unit)} bytes)")
+            self._send_config_frame('pps', nal_unit)
+        elif nal_type == 5:  # IDR frame
+            self._send_frame(nal_unit, is_keyframe=True)
+        elif nal_type == 1:  # Non-IDR frame
+            self._send_frame(nal_unit, is_keyframe=False)
+        else:
+            # Other NAL types (AUD, SEI, etc.) - send as-is
+            self._send_frame(nal_unit, is_keyframe=False)
+    
+    def _send_config_frame(self, config_type, nal_unit):
+        """Send SPS/PPS configuration data to WebSocket clients."""
+        try:
+            # Create a JSON message with configuration data
+            config_data = {
+                "type": "config",
+                "config_type": config_type,
+                "data": list(nal_unit),  # Convert bytes to array for JSON
+                "length": len(nal_unit)
+            }
+            
+            # Send as text message for configuration
+            config_json = json.dumps(config_data).encode('utf-8')
+            self._send_frame_data(config_json, is_config=True)
+            
+        except Exception as e:
+            print(f"⚠️ Config frame send error: {e}")
+    
+    def _send_frame(self, frame_data, is_keyframe=False):
         """Send frame data to WebSocket clients (memory to WebSocket)."""
+        self._send_frame_data(frame_data, is_config=False, is_keyframe=is_keyframe)
+    
+    def _send_frame_data(self, frame_data, is_config=False, is_keyframe=False):
+        """Send frame data to WebSocket clients with proper handling."""
         try:
             # Get the main event loop
             if self._loop is None:
@@ -135,35 +182,44 @@ class WebSocketH264Stream(io.BufferedIOBase):
                 except RuntimeError:
                     # No event loop in current thread, use thread-safe approach
                     import threading
-                    threading.Thread(target=self._send_frame_async, args=(frame_data,), daemon=True).start()
+                    threading.Thread(target=self._send_frame_async, args=(frame_data, is_config), daemon=True).start()
                     return
             
             # Schedule the frame broadcast in the main event loop
             if self._loop and not self._loop.is_closed():
-                self._loop.call_soon_threadsafe(self._schedule_broadcast, frame_data)
+                self._loop.call_soon_threadsafe(self._schedule_broadcast, frame_data, is_config)
                 
-            self.frame_count += 1
-            self.bytes_sent += len(frame_data)
-            
-            # Log stats every 60 frames (every 2 seconds at 30fps)
-            if self.frame_count % 60 == 0:
-                avg_frame_size = self.bytes_sent / self.frame_count
-                print(f"📺 Streamed {self.frame_count} frames, avg size: {avg_frame_size:.0f} bytes (memory only)")
+            if not is_config:  # Only count actual video frames
+                self.frame_count += 1
+                self.bytes_sent += len(frame_data)
+                
+                # Log stats every 40 frames (every 2 seconds at 20fps)
+                if self.frame_count % 40 == 0:
+                    avg_frame_size = self.bytes_sent / self.frame_count
+                    print(f"📺 Streamed {self.frame_count} frames, avg size: {avg_frame_size:.0f} bytes (memory only)")
                 
         except Exception as e:
             print(f"⚠️ WebSocket frame send error: {e}")
     
-    def _schedule_broadcast(self, frame_data):
+    def _schedule_broadcast(self, frame_data, is_config=False):
         """Schedule frame broadcast in the event loop."""
-        asyncio.create_task(self.connection_manager.broadcast_binary(frame_data))
+        if is_config:
+            # Send config data as text
+            asyncio.create_task(self.connection_manager.broadcast_text(frame_data.decode('utf-8')))
+        else:
+            # Send frame data as binary
+            asyncio.create_task(self.connection_manager.broadcast_binary(frame_data))
     
-    def _send_frame_async(self, frame_data):
+    def _send_frame_async(self, frame_data, is_config=False):
         """Send frame asynchronously when no event loop is available."""
         try:
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.connection_manager.broadcast_binary(frame_data))
+            if is_config:
+                loop.run_until_complete(self.connection_manager.broadcast_text(frame_data.decode('utf-8')))
+            else:
+                loop.run_until_complete(self.connection_manager.broadcast_binary(frame_data))
             loop.close()
         except Exception as e:
             print(f"⚠️ Async frame send error: {e}")

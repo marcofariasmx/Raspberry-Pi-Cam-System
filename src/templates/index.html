@@ -246,6 +246,9 @@
                 this.connected = false;
                 this.frameQueue = [];
                 this.isDecoding = false;
+                this.spsData = null;
+                this.ppsData = null;
+                this.decoderConfigured = false;
             }
 
             async initialize() {
@@ -255,23 +258,16 @@
                 }
 
                 try {
-                    // Initialize decoder
+                    // Initialize decoder (don't configure yet - wait for SPS/PPS)
                     this.decoder = new VideoDecoder({
                         output: this.handleFrame.bind(this),
                         error: this.handleError.bind(this)
                     });
 
-                    // Configure decoder for H.264 High Profile
-                    await this.decoder.configure({
-                        codec: 'avc1.64001f',  // H.264 High Profile Level 3.1
-                        optimizeForLatency: true,
-                        hardwareAcceleration: 'prefer-hardware'
-                    });
-
-                    // Connect WebSocket
+                    // Connect WebSocket first to receive SPS/PPS
                     await this.connectWebSocket();
 
-                    console.log('✅ WebCodecs decoder initialized');
+                    console.log('✅ WebCodecs decoder initialized (waiting for stream config)');
                     return true;
                 } catch (error) {
                     console.error('❌ WebCodecs initialization failed:', error);
@@ -297,14 +293,24 @@
 
                     this.websocket.onmessage = (event) => {
                         if (typeof event.data === 'string') {
-                            // Handle control messages
-                            const message = JSON.parse(event.data);
-                            if (message.type === 'keepalive') {
-                                this.websocket.send('{"type":"pong"}');
+                            // Handle control and config messages
+                            try {
+                                const message = JSON.parse(event.data);
+                                if (message.type === 'keepalive') {
+                                    this.websocket.send('{"type":"pong"}');
+                                } else if (message.type === 'config') {
+                                    this.handleConfigMessage(message);
+                                }
+                            } catch (e) {
+                                console.warn('Invalid JSON message:', e);
                             }
                         } else {
-                            // Handle H.264 frame data
-                            this.processH264Frame(event.data);
+                            // Handle H.264 frame data (only if decoder is configured)
+                            if (this.decoderConfigured) {
+                                this.processH264Frame(event.data);
+                            } else {
+                                console.log('Waiting for SPS/PPS before processing frames...');
+                            }
                         }
                     };
 
@@ -321,8 +327,53 @@
                 });
             }
 
+            handleConfigMessage(message) {
+                try {
+                    console.log(`📄 Received ${message.config_type.toUpperCase()} config (${message.length} bytes)`);
+                    
+                    // Store SPS/PPS data
+                    if (message.config_type === 'sps') {
+                        this.spsData = new Uint8Array(message.data);
+                    } else if (message.config_type === 'pps') {
+                        this.ppsData = new Uint8Array(message.data);
+                    }
+                    
+                    // Configure decoder when we have both SPS and PPS
+                    if (this.spsData && this.ppsData && !this.decoderConfigured) {
+                        this.configureDecoder();
+                    }
+                } catch (error) {
+                    console.error('❌ Config message error:', error);
+                }
+            }
+
+            async configureDecoder() {
+                try {
+                    console.log('🔧 Configuring WebCodecs decoder with SPS/PPS...');
+                    
+                    // Use basic Annex-B configuration for now
+                    await this.decoder.configure({
+                        codec: 'avc1.64001f',  // H.264 High Profile Level 3.1
+                        optimizeForLatency: true,
+                        hardwareAcceleration: 'prefer-hardware'
+                    });
+                    
+                    this.decoderConfigured = true;
+                    console.log('✅ WebCodecs decoder configured - ready for frames!');
+                    
+                } catch (error) {
+                    console.error('❌ Decoder configuration failed:', error);
+                    throw error;
+                }
+            }
+
             processH264Frame(data) {
                 try {
+                    if (!this.decoderConfigured || this.decoder.state !== 'configured') {
+                        console.log('Decoder not ready, skipping frame');
+                        return;
+                    }
+
                     frameCount++;
                     const now = Date.now();
                     
@@ -346,6 +397,8 @@
                     
                 } catch (error) {
                     console.error('❌ Frame processing error:', error);
+                    // Try to recover by reconfiguring decoder
+                    this.recoverDecoder();
                 }
             }
 
@@ -384,9 +437,33 @@
                 }
             }
 
+            recoverDecoder() {
+                try {
+                    console.log('🔄 Attempting decoder recovery...');
+                    if (this.decoder && this.decoder.state !== 'closed') {
+                        this.decoder.close();
+                    }
+                    
+                    // Recreate decoder
+                    this.decoder = new VideoDecoder({
+                        output: this.handleFrame.bind(this),
+                        error: this.handleError.bind(this)
+                    });
+                    
+                    this.decoderConfigured = false;
+                    
+                    // Reconfigure if we have SPS/PPS
+                    if (this.spsData && this.ppsData) {
+                        setTimeout(() => this.configureDecoder(), 100);
+                    }
+                } catch (error) {
+                    console.error('❌ Decoder recovery failed:', error);
+                }
+            }
+
             handleError(error) {
                 console.error('❌ WebCodecs decoder error:', error);
-                this.reconnect();
+                this.recoverDecoder();
             }
 
             async reconnect() {

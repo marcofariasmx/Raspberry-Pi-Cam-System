@@ -57,7 +57,7 @@ class Config:
     # Camera stream parameters (optimized for WebCodecs)
     stream_width: int = 1200  # Default 1200x900 for good quality
     stream_height: int = 900
-    stream_fps: int = 30      # 30fps for smooth WebCodecs playback
+    stream_fps: int = 20      # 20fps for better Pi Zero 2W performance
     
     # H.264 streaming via WebSocket for WebCodecs
     h264_bitrate: int = 2000000  # 2 Mbps for good quality

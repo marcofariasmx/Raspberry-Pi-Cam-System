@@ -104,7 +104,32 @@ class ConnectionManager:
             try:
                 await asyncio.gather(*send_tasks, return_exceptions=True)
             except Exception as e:
-                print(f"⚠️ Broadcast error: {e}")
+                print(f"⚠️ Binary broadcast error: {e}")
+        
+        # Clean up disconnected clients
+        for conn in disconnected:
+            await self.disconnect(conn)
+    
+    async def broadcast_text(self, data: str):
+        if not self.active_connections:
+            return
+        
+        # Use asyncio.gather for concurrent sends to all clients
+        disconnected = []
+        send_tasks = []
+        
+        async with self._lock:
+            for connection in self.active_connections[:]:  # Copy to avoid modification during iteration
+                try:
+                    send_tasks.append(connection.send_text(data))
+                except Exception:
+                    disconnected.append(connection)
+        
+        if send_tasks:
+            try:
+                await asyncio.gather(*send_tasks, return_exceptions=True)
+            except Exception as e:
+                print(f"⚠️ Text broadcast error: {e}")
         
         # Clean up disconnected clients
         for conn in disconnected:
