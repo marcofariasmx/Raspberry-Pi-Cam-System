@@ -84,14 +84,16 @@ class StreamingOutput(io.BufferedIOBase):
         
         if self.websocket_manager and buf and self.loop:
             try:
-                # Send raw H.264 data in Annex B format directly
-                # Properly handle the Future to prevent memory leaks
-                future = asyncio.run_coroutine_threadsafe(
-                    self.websocket_manager.broadcast_binary(buf), 
-                    self.loop
-                )
-                # Don't wait for result, but ensure we don't leak futures
-                future.add_done_callback(lambda f: f.exception())
+                # Check if WebSocket can handle the data rate (prevent TCP buffer overflow)
+                if hasattr(self.websocket_manager, 'active_connections') and self.websocket_manager.active_connections > 0:
+                    # Send raw H.264 data in Annex B format directly
+                    # Properly handle the Future to prevent memory leaks
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.websocket_manager.broadcast_binary(buf), 
+                        self.loop
+                    )
+                    # Don't wait for result, but ensure we don't leak futures
+                    future.add_done_callback(lambda f: f.exception())
                 
                 self.frame_count += 1
                     

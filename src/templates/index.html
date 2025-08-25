@@ -238,7 +238,17 @@
                     // Update metrics
                     this.frameCount++;
                     this.bytesReceived += uint8Array.length;
-                    this.lastDataTime = performance.now();
+                    const now = performance.now();
+                    const timeSinceLastFrame = now - this.lastDataTime;
+                    this.lastDataTime = now;
+                    
+                    // Monitor for frame starvation (the real issue)
+                    if (timeSinceLastFrame > 100) { // More than 100ms between frames at 20fps (50ms expected)
+                        console.warn(`⚠️ Frame starvation detected: ${timeSinceLastFrame.toFixed(1)}ms gap between frames`);
+                        if (timeSinceLastFrame > 1000) {
+                            console.error(`❌ Severe frame starvation: ${(timeSinceLastFrame/1000).toFixed(1)}s gap - network/server issue`);
+                        }
+                    }
                     
                     try {
                         // Feed raw H.264 data to jMuxer
@@ -306,9 +316,12 @@
                         
                         bufferHealthEl.textContent = `🔋 Buffer: ${bufferSize.toFixed(2)}s`;
                         
-                        // Log buffer status for monitoring
+                        // Monitor for Pi Zero 2W performance issues  
                         if (bufferSize > 3.0) {
-                            console.warn(`⚠️ Buffer growing: ${bufferSize.toFixed(2)}s - jMuxer should handle this`);
+                            console.warn(`⚠️ Pi Zero 2W performance limit reached - buffer: ${bufferSize.toFixed(2)}s`);
+                            console.warn(`💡 Consider reducing bitrate to 1-1.5Mbps for Pi Zero 2W`);
+                        } else if (bufferSize > 5.0) {
+                            console.error(`❌ Severe buffering detected - Pi Zero 2W may be throttling`);
                         }
                         
                         if (bufferSize < 0.5) {
