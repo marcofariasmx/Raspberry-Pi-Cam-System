@@ -367,10 +367,12 @@ class Camera:
                 self._configure_camera()
                 
                 # Create H.264 encoder with SPS/PPS repetition for WebCodecs
+                # Use actual configured FPS for IDR frame interval
+                idr_interval = max(self.config.stream_fps // 2, 10)  # IDR every 0.5 seconds, min 10 frames
                 encoder = H264Encoder(
                     bitrate=self.config.h264_bitrate,
                     repeat=True,  # Repeat SPS/PPS before every IDR frame
-                    iperiod=30    # IDR frame every 30 frames (1 second at 30fps)
+                    iperiod=idr_interval  # IDR frames based on actual FPS
                 )
                 
                 # Create streaming output with event loop and wrap with FileOutput
@@ -388,7 +390,7 @@ class Camera:
                 print(f"🎬 WebSocket H.264 streaming started with SPS/PPS repetition")
                 print(f"   Resolution: {self.config.stream_width}x{self.config.stream_height} @ {self.config.stream_fps}fps")
                 print(f"   Bitrate: {self.config.h264_bitrate//1000000}Mbps")
-                print(f"   IDR frames: every {30} frames for WebCodecs compatibility")
+                print(f"   IDR frames: every {idr_interval} frames ({idr_interval/self.config.stream_fps:.1f}s intervals)")
                 return True
                 
             except Exception as e:

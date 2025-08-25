@@ -464,10 +464,13 @@
                     const latency = now - lastFrameTime;
                     lastFrameTime = now;
 
+                    // Log frame timing issues
+                    if (this.frameCount % 20 === 0) {
+                        console.log(`📊 Frame ${this.frameCount}, queue: ${this.decoder.decodeQueueSize}, interval: ${latency}ms`);
+                    }
+
                     // Simple incremental timestamps
-                    // Just increment by 1000 microseconds per frame
-                    // WebCodecs will handle the actual playback timing
-                    this.timestamp += 1000;
+                    this.timestamp += 50000; // 50ms intervals (20fps)
 
                     // Create EncodedVideoChunk
                     const chunk = new EncodedVideoChunk({
