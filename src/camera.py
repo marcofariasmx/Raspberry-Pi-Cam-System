@@ -173,21 +173,18 @@ class WebSocketH264Stream(io.BufferedIOBase):
         self._send_frame_data(frame_data, is_config=False, is_keyframe=is_keyframe)
     
     def _send_frame_data(self, frame_data, is_config=False, is_keyframe=False):
-        """Send frame data to WebSocket clients with proper handling."""
+        """Send frame data to WebSocket clients - simplified approach."""
         try:
-            # Get the main event loop
-            if self._loop is None:
-                try:
-                    self._loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    # No event loop in current thread, use thread-safe approach
-                    import threading
-                    threading.Thread(target=self._send_frame_async, args=(frame_data, is_config), daemon=True).start()
-                    return
-            
-            # Schedule the frame broadcast in the main event loop
-            if self._loop and not self._loop.is_closed():
-                self._loop.call_soon_threadsafe(self._schedule_broadcast, frame_data, is_config)
+            # Store in a simple queue that the main thread can process
+            if hasattr(self.connection_manager, 'frame_queue'):
+                self.connection_manager.frame_queue.append((frame_data, is_config))
+            else:
+                # Initialize queue
+                self.connection_manager.frame_queue = [(frame_data, is_config)]
+                
+            # Limit queue size to prevent memory buildup
+            if len(self.connection_manager.frame_queue) > 10:
+                self.connection_manager.frame_queue.pop(0)  # Remove oldest
                 
             if not is_config:  # Only count actual video frames
                 self.frame_count += 1
@@ -201,28 +198,6 @@ class WebSocketH264Stream(io.BufferedIOBase):
         except Exception as e:
             print(f"⚠️ WebSocket frame send error: {e}")
     
-    def _schedule_broadcast(self, frame_data, is_config=False):
-        """Schedule frame broadcast in the event loop."""
-        if is_config:
-            # Send config data as text
-            asyncio.create_task(self.connection_manager.broadcast_text(frame_data.decode('utf-8')))
-        else:
-            # Send frame data as binary
-            asyncio.create_task(self.connection_manager.broadcast_binary(frame_data))
-    
-    def _send_frame_async(self, frame_data, is_config=False):
-        """Send frame asynchronously when no event loop is available."""
-        try:
-            # Create new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            if is_config:
-                loop.run_until_complete(self.connection_manager.broadcast_text(frame_data.decode('utf-8')))
-            else:
-                loop.run_until_complete(self.connection_manager.broadcast_binary(frame_data))
-            loop.close()
-        except Exception as e:
-            print(f"⚠️ Async frame send error: {e}")
     
     def flush(self):
         """Flush - no-op for memory stream."""

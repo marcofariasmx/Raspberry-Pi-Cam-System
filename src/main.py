@@ -70,6 +70,8 @@ class ConnectionManager:
         self.active_connections: list[WebSocket] = []
         self.connection_count = 0
         self._lock = asyncio.Lock()
+        self.frame_queue = []
+        self._queue_processor_running = False
     
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -134,6 +136,35 @@ class ConnectionManager:
         # Clean up disconnected clients
         for conn in disconnected:
             await self.disconnect(conn)
+    
+    async def start_queue_processor(self):
+        """Start the background queue processor."""
+        if self._queue_processor_running:
+            return
+            
+        self._queue_processor_running = True
+        asyncio.create_task(self._process_frame_queue())
+    
+    async def _process_frame_queue(self):
+        """Process the frame queue in the main event loop."""
+        while self._queue_processor_running:
+            try:
+                if self.frame_queue:
+                    # Process up to 5 frames per cycle to prevent blocking
+                    for _ in range(min(5, len(self.frame_queue))):
+                        if self.frame_queue:
+                            frame_data, is_config = self.frame_queue.pop(0)
+                            if is_config:
+                                await self.broadcast_text(frame_data.decode('utf-8'))
+                            else:
+                                await self.broadcast_binary(frame_data)
+                
+                # Small delay to prevent CPU spinning
+                await asyncio.sleep(0.01)  # 10ms
+                
+            except Exception as e:
+                print(f"⚠️ Queue processor error: {e}")
+                await asyncio.sleep(0.1)
 
 manager = ConnectionManager()
 
@@ -216,6 +247,10 @@ async def startup_event():
         if camera.is_available():
             print("✅ Camera initialized and ready for WebSocket streaming")
             
+            # Start the queue processor for frame handling
+            await manager.start_queue_processor()
+            print("✅ Frame queue processor started")
+
             # Auto-start WebSocket H.264 streaming
             print("🎬 Auto-starting WebSocket H.264 streaming...")
             if camera.start_websocket_h264_streaming(manager):
