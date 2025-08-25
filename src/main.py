@@ -69,6 +69,11 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
     
+    @property
+    def connection_count(self) -> int:
+        """Get current connection count for health endpoint compatibility."""
+        return len(self.active_connections)
+    
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
