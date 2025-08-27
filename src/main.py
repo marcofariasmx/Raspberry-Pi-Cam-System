@@ -347,18 +347,85 @@ async def mediamtx_webrtc_proxy(request: Request):
 
 
 @app.get("/api/mediamtx/hls")
-@app.get("/api/mediamtx/hls/{path:path}")
-async def mediamtx_hls_proxy(path: str = "index.m3u8"):
-    """Proxy HLS requests to MediaMTX for domain compatibility."""
-    target_url = f"http://localhost:{config.mediamtx_hls_port}/cam/{path}"
+async def mediamtx_hls_index():
+    """Proxy HLS index.m3u8 request to MediaMTX."""
+    target_url = f"http://localhost:{config.mediamtx_hls_port}/cam/index.m3u8"
     
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(target_url, follow_redirects=True)
+        
+        # Modify the content to fix relative URLs
+        if response.status_code == 200:
+            content = response.text
+            # Replace relative URLs with proxied URLs
+            content = content.replace('cam/', '/api/mediamtx/hls/cam/')
+            return Response(
+                content=content,
+                status_code=response.status_code,
+                media_type="application/vnd.apple.mpegurl",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Access-Control-Allow-Origin": "*"
+                }
+            )
         return Response(
             content=response.content,
             status_code=response.status_code,
             headers=dict(response.headers)
         )
+
+@app.get("/api/mediamtx/hls/{path:path}")
+async def mediamtx_hls_proxy(path: str):
+    """Proxy HLS segment requests to MediaMTX for domain compatibility."""
+    # Handle both direct segment requests and cam/ prefixed requests
+    if not path.startswith("cam/"):
+        # If the path doesn't start with cam/, assume it's a direct segment request
+        target_url = f"http://localhost:{config.mediamtx_hls_port}/{path}"
+    else:
+        # If it starts with cam/, use it as is
+        target_url = f"http://localhost:{config.mediamtx_hls_port}/{path}"
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(target_url, follow_redirects=True)
+            
+            # For m3u8 files, we need to rewrite URLs
+            if path.endswith('.m3u8'):
+                content = response.text
+                import re
+                
+                # Rewrite all relative URLs to go through our proxy
+                # This handles segment files (.ts, .m4s, .mp4) and sub-playlists (.m3u8)
+                content = re.sub(
+                    r'^(?!https?://)(?!/)([^\s\n]+\.(ts|m4s|mp4|m3u8))$',
+                    r'/api/mediamtx/hls/cam/\1',
+                    content,
+                    flags=re.MULTILINE
+                )
+                
+                return Response(
+                    content=content,
+                    status_code=response.status_code,
+                    media_type="application/vnd.apple.mpegurl",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Access-Control-Allow-Origin": "*"
+                    }
+                )
+            else:
+                # For other files (.ts, .m4s, etc.), pass through as-is
+                return Response(
+                    content=response.content,
+                    status_code=response.status_code,
+                    headers={
+                        "Cache-Control": "max-age=1",
+                        "Access-Control-Allow-Origin": "*",
+                        "Content-Type": response.headers.get("Content-Type", "application/octet-stream")
+                    }
+                )
+        except Exception as e:
+            print(f"HLS proxy error for path {path}: {e}")
+            raise HTTPException(status_code=502, detail=f"Failed to proxy HLS request: {str(e)}")
 
 
 class CameraSettings(BaseModel):
