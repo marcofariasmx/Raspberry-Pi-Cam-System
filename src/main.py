@@ -357,8 +357,8 @@ async def mediamtx_hls_index():
         # Modify the content to fix relative URLs
         if response.status_code == 200:
             content = response.text
-            # Replace relative URLs with proxied URLs
-            content = content.replace('cam/', '/api/mediamtx/hls/cam/')
+            # Replace the main_stream.m3u8 reference with the correct proxy path
+            content = content.replace('main_stream.m3u8', '/api/mediamtx/hls/cam/main_stream.m3u8')
             return Response(
                 content=content,
                 status_code=response.status_code,

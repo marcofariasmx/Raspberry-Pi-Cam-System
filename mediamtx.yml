@@ -29,6 +29,7 @@ hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
+hlsDirectory: /tmp/mediamtx-hls
 
 # RTSP settings
 rtsp: yes
