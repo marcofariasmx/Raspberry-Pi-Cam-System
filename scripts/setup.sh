@@ -360,9 +360,9 @@ install_mediamtx() {
     # Make executable
     sudo chmod +x $mediamtx_dir/mediamtx
     
-    # Create optimized configuration for Pi H.264 streaming
+    # Create optimized configuration for Pi H.264 streaming with LL-HLS
     sudo tee $mediamtx_dir/mediamtx.yml > /dev/null << 'EOF'
-# MediaMTX Configuration for Raspberry Pi H.264 Streaming
+# MediaMTX Configuration for Raspberry Pi H.264 Streaming - LL-HLS Optimized
 
 # General settings
 logLevel: info

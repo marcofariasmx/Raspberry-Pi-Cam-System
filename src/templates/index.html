@@ -203,17 +203,17 @@
                     return;
                 }
                 
-                // Try H.264 streams (WebRTC -> HLS) 
+                // Try H.264 streams (HLS first for LL-HLS priority, then WebRTC as fallback) 
                 if (streamInfo.streams.h264) {
-                    // Try WebRTC first
-                    if (await tryWebRTC(streamInfo.streams.h264.webrtc)) {
-                        currentProtocol = 'WebRTC';
+                    // Try LL-HLS first (primary protocol)
+                    if (await tryHLS(streamInfo.streams.h264.hls)) {
+                        currentProtocol = 'LL-HLS';
                         return;
                     }
                     
-                    // Fallback to HLS
-                    if (await tryHLS(streamInfo.streams.h264.hls)) {
-                        currentProtocol = 'HLS';
+                    // Fallback to WebRTC if HLS fails
+                    if (await tryWebRTC(streamInfo.streams.h264.webrtc)) {
+                        currentProtocol = 'WebRTC';
                         return;
                     }
                     
@@ -289,10 +289,10 @@
             return false;
         }
         
-        // Try HLS streaming
+        // Try HLS streaming with LL-HLS optimization
         async function tryHLS(hlsUrl) {
             try {
-                console.log('🎬 Trying HLS...');
+                console.log('🎬 Trying LL-HLS (Low-Latency HLS)...');
                 
                 // Check if browser supports HLS natively
                 if (hlsStream.canPlayType('application/vnd.apple.mpegurl')) {
@@ -303,10 +303,42 @@
                     return true;
                 }
                 
-                // Try HLS.js if available
+                // Try HLS.js if available with LL-HLS configuration
                 if (window.Hls && Hls.isSupported()) {
-                    console.log('📚 Using HLS.js');
-                    const hls = new Hls();
+                    console.log('📚 Using HLS.js with LL-HLS configuration');
+                    const hls = new Hls({
+                        // LL-HLS optimizations
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                        backBufferLength: 90,
+                        maxBufferSize: 0,
+                        maxBufferLength: 5,
+                        maxMaxBufferLength: 10,
+                        liveSyncDurationCount: 2,
+                        liveMaxLatencyDurationCount: 4,
+                        liveDurationInfinity: true,
+                        // Aggressive settings for low latency
+                        highBufferWatchdogPeriod: 1,
+                        nudgeMaxRetry: 5,
+                        nudgeOffset: 0.1,
+                        maxFragLookUpTolerance: 0.1,
+                        // Enable partial segments
+                        progressive: true,
+                        renderTextTracksNatively: false
+                    });
+                    
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        console.log('✅ LL-HLS manifest loaded');
+                        hlsStream.play();
+                    });
+                    
+                    hls.on(Hls.Events.ERROR, (event, data) => {
+                        if (data.fatal) {
+                            console.error('❌ Fatal HLS error:', data.type);
+                            hls.destroy();
+                        }
+                    });
+                    
                     hls.loadSource(hlsUrl);
                     hls.attachMedia(hlsStream);
                     showStream('hls');
