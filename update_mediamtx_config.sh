@@ -64,144 +64,53 @@ update_config() {
         print_status "Using configuration from current directory"
         cp mediamtx.yml "$MEDIAMTX_CONFIG"
     else
-        # Create the LL-HLS optimized configuration
+        # Create the LL-HLS optimized configuration (based on working config)
         cat > "$MEDIAMTX_CONFIG" << 'EOF'
-###############################################
-# MediaMTX Configuration - Optimized for LL-HLS
-###############################################
+# MediaMTX Configuration for Raspberry Pi H.264 Streaming - LL-HLS Optimized
 
-# Global settings
+# General settings
 logLevel: info
 logDestinations: [stdout]
-logFile: mediamtx.log
 
-# API Configuration
+# API settings
 api: yes
-apiAddress: :9997
+apiAddress: 127.0.0.1:9997
 
 # Metrics
 metrics: yes
-metricsAddress: :9998
+metricsAddress: 127.0.0.1:9998
 
-# PPROF for debugging (disable in production)
-pprof: no
-pprofAddress: :9999
-
-# Recording settings
-record: no
-recordPath: ./recordings
-
-# Playback settings
-playback: no
-
-# RTSP Server Configuration
-rtsp: yes
-rtspDisable: no
-protocols: [tcp, udp]
-rtspAddress: :8554
-rtspsAddress: :8322
-rtpAddress: :8000
-rtcpAddress: :8001
-multicastIPRange: 224.1.0.0/16
-multicastRTPPort: 8002
-multicastRTCPPort: 8003
-serverKey: server.key
-serverCert: server.crt
-authMethods: [basic, digest]
-
-# RTMP Server Configuration (disabled - not needed for HLS)
-rtmp: no
-
-# HLS Configuration - Optimized for Low Latency
-hls: yes
-hlsDisable: no
-hlsAddress: :8888
-hlsEncryption: no
-hlsServerKey: server.key
-hlsServerCert: server.crt
-hlsAlwaysRemux: no
-hlsAllowOrigin: "*"
-
-# Low-Latency HLS (LL-HLS) Settings
-hlsVariant: lowLatency
-
-# Segment settings for LL-HLS
-hlsSegmentCount: 7           # Number of segments in playlist
-hlsSegmentDuration: 1s        # Duration of each segment (1s for LL-HLS)
-hlsPartDuration: 200ms        # Duration of partial segments (200ms for low latency)
-hlsSegmentMaxSize: 50M        # Max size of each segment
-
-# Directory for HLS files
-hlsDirectory: /tmp/mediamtx-hls
-
-# WebRTC Configuration (as secondary option)
+# WebRTC settings
 webrtc: yes
-webrtcDisable: no
 webrtcAddress: :8443
-webrtcServerKey: server.key
-webrtcServerCert: server.crt
-webrtcLocalUDPAddress: :8189
-webrtcLocalTCPAddress: :8189
-webrtcIPsFromInterfaces: yes
-webrtcIPsFromInterfacesList: []
-webrtcAdditionalHosts: []
-webrtcICEServers: []
+webrtcEncryption: no
 webrtcAllowOrigin: "*"
 
-# Path Configuration for Camera Stream
+# HLS settings - Optimized for Low Latency
+hls: yes
+hlsAddress: :8888
+hlsEncryption: no
+hlsAllowOrigin: "*"
+hlsAlwaysRemux: no
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+
+# RTSP settings
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [tcp, udp]
+rtspEncryption: "no"
+
+# Path configuration for H.264 streaming
 paths:
   cam:
-    # Accept stream from Raspberry Pi camera via RTSP
-    source: publisher
-    
-    # Enable source on demand
+    # Camera publishes to this path via RTSP
     sourceOnDemand: no
-    sourceOnDemandStartTimeout: 10s
-    sourceOnDemandCloseAfter: 10s
-    
-    # Disable recording for this path
-    record: no
-    
-    # Enable HLS with LL-HLS optimizations
-    publishUser:
-    publishPass:
-    publishIPs: [127.0.0.1, 192.168.0.0/16, 10.0.0.0/8]
-    readUser:
-    readPass:
-    readIPs: []
-    
-    # Override HLS settings for this path
-    overridePublisher: yes
-    fallback:
-    
-    # Additional source protocol settings
-    sourceProtocol: automatic
     sourceAnyPortEnable: yes
-    sourceFingerprint:
-    sourceOnDemandCmd:
-    sourceOnDemandCloseAfterCmd:
-    sourceRedirect:
-    
-    # Disable unneeded features
-    disablePublisherOverride: no
-    rpiCameraWidth:
-    rpiCameraHeight:
-    
-    # Run commands
-    runOnInit:
-    runOnInitRestart: no
-    runOnDemand:
-    runOnDemandRestart: no
-    runOnDemandStartTimeout: 10s
-    runOnDemandCloseAfter: 10s
-    runOnPublish:
-    runOnPublishRestart: no
-    runOnRead:
-    runOnReadRestart: no
-    runOnReady:
-    runOnReadyRestart: no
-    runOnNotReady:
-    runOnDelete:
+    record: no
 EOF
     fi
     
