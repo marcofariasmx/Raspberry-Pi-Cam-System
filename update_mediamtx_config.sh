@@ -91,8 +91,8 @@ hls: yes
 hlsAddress: :8888
 hlsEncryption: no
 hlsAllowOrigin: "*"
-hlsAlwaysRemux: no
-hlsVariant: lowLatency
+hlsAlwaysRemux: yes
+hlsVariant: mpegts
 hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
@@ -148,11 +148,11 @@ test_mediamtx() {
 show_summary() {
     echo ""
     echo "========================================"
-    print_success "MediaMTX LL-HLS Configuration Updated!"
+    print_success "MediaMTX HLS Configuration Updated!"
     echo "========================================"
     echo ""
-    print_status "Key LL-HLS Settings Applied:"
-    echo "  • Variant: lowLatency"
+    print_status "Key HLS Settings Applied:"
+    echo "  • Variant: mpegts"
     echo "  • Segment Duration: 1s"
     echo "  • Part Duration: 200ms (ultra-low latency)"
     echo "  • Segment Count: 7"

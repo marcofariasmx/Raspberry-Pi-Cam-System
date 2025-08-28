@@ -50,8 +50,8 @@ The web interface will automatically use LL-HLS as the primary streaming protoco
 The key LL-HLS settings in `/opt/mediamtx/mediamtx.yml`:
 
 ```yaml
-# Low-Latency HLS Settings
-hlsVariant: lowLatency        # Enable LL-HLS mode
+# HLS Settings
+hlsVariant: mpegts            # Standard HLS mode
 hlsSegmentCount: 7             # Number of segments in playlist
 hlsSegmentDuration: 1s         # Duration of each segment
 hlsPartDuration: 200ms         # Duration of partial segments (key for low latency)
@@ -79,7 +79,7 @@ The web interface (index.html) is configured with HLS.js optimizations:
 
 ```javascript
 const hls = new Hls({
-    lowLatencyMode: true,           // Enable LL-HLS mode
+    lowLatencyMode: false,          // Standard HLS mode
     liveSyncDurationCount: 2,       // Segments to stay behind live edge
     liveMaxLatencyDurationCount: 4, // Maximum latency tolerance
     maxBufferLength: 5,             // Maximum buffer in seconds
@@ -267,10 +267,10 @@ localStorage.debug = 'hls:*'
 
 For ultra-low latency (experimental):
 ```yaml
-hlsVariant: lowLatency
-hlsSegmentDuration: 500ms
-hlsPartDuration: 100ms
-hlsSegmentCount: 4
+hlsVariant: mpegts
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentCount: 7
 ```
 
 ### Adaptive Bitrate Streaming

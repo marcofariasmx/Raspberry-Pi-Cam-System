@@ -387,12 +387,13 @@ hls: yes
 hlsAddress: :8888
 hlsEncryption: no
 hlsAllowOrigin: "*"
-hlsAlwaysRemux: no
-hlsVariant: lowLatency
+hlsAlwaysRemux: yes
+hlsVariant: mpegts
 hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
+hlsDirectory: /tmp/mediamtx-hls
 
 # RTSP settings
 rtsp: yes
@@ -409,8 +410,10 @@ paths:
     record: no
 EOF
     
-    # Set permissions
-    sudo chown -R $USER:$USER $mediamtx_dir
+    # Create HLS directory and set permissions
+    sudo mkdir -p /tmp/mediamtx-hls
+    sudo chown -R $USER:$USER $mediamtx_dir /tmp/mediamtx-hls
+    sudo chmod -R 755 /tmp/mediamtx-hls
     
     print_success "MediaMTX installed successfully in $mediamtx_dir"
 }
