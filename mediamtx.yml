@@ -26,11 +26,6 @@ hlsSegmentCount: 5
 hlsSegmentDuration: 5s
 hlsPartDuration: 500ms
 
-# LL-HLS Settings (too choppy on Pi Zero 2W - for future reference)
-# hlsVariant: lowLatency
-# hlsSegmentCount: 7
-# hlsSegmentDuration: 1s
-# hlsPartDuration: 200ms
 hlsSegmentMaxSize: 1000M
 hlsDirectory: ''
 
@@ -41,7 +36,7 @@ writeQueueSize: 2048              # Double the buffer
 # RTSP settings
 rtsp: yes
 rtspAddress: :8554
-rtspTransports: [tcp, udp]
+rtspTransports: [tcp]
 rtspEncryption: "no"
 
 # Path configuration for H.264 streaming
