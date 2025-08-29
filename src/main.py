@@ -25,14 +25,14 @@ The server automatically detects available camera hardware and falls back
 to development mode when running without camera modules for testing purposes.
 """
 
-import os
+import re
 from datetime import datetime
 import httpx
 import asyncio
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -392,7 +392,6 @@ async def mediamtx_hls_proxy(path: str):
             # For m3u8 files, we need to rewrite URLs
             if path.endswith('.m3u8'):
                 content = response.text
-                import re
                 
                 # Rewrite all relative URLs to go through our proxy
                 # This handles segment files (.ts, .m4s, .mp4) and sub-playlists (.m3u8)

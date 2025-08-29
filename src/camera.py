@@ -16,11 +16,8 @@ The module supports various Raspberry Pi camera modules and automatically
 configures optimal settings based on the provided configuration.
 """
 
-import io
-import time
 import threading
-from threading import Condition
-from typing import Generator, Optional
+from typing import Optional
 
 try:
     from picamera2 import Picamera2
