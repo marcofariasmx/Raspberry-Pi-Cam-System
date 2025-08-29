@@ -29,8 +29,7 @@ hlsSegmentMaxSize: 50M
 hlsDirectory: /tmp/mediamtx-hls
 
 # Performance optimizations
-readBufferSize: 8192
-writeQueueSize: 8192
+writeQueueSize: 1024
 
 # RTSP settings
 rtsp: yes
