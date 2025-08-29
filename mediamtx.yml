@@ -26,7 +26,7 @@ hlsSegmentCount: 5
 hlsSegmentDuration: 5s
 hlsPartDuration: 500ms
 hlsSegmentMaxSize: 1000M
-hlsDirectory: /tmp/mediamtx-hls
+hlsDirectory: ''
 
 # Performance optimizations
 writeQueueSize: 2048              # Double the buffer
