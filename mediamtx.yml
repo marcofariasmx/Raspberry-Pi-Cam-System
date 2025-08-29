@@ -21,7 +21,7 @@ hlsAddress: :8888
 hlsEncryption: no
 hlsAllowOrigin: "*"
 hlsAlwaysRemux: yes
-hlsVariant: lowLatency
+hlsVariant: mpegts
 hlsSegmentCount: 3
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
