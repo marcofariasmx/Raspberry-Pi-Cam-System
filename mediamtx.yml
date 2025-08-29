@@ -22,14 +22,16 @@ hlsEncryption: no
 hlsAllowOrigin: "*"
 hlsAlwaysRemux: yes
 hlsVariant: fmp4
-hlsSegmentCount: 3
-hlsSegmentDuration: 7s
-hlsPartDuration: 200ms
-hlsSegmentMaxSize: 50M
+hlsSegmentCount: 5
+hlsSegmentDuration: 5s
+hlsPartDuration: 500ms
+hlsSegmentMaxSize: 1000M
 hlsDirectory: /tmp/mediamtx-hls
 
 # Performance optimizations
-writeQueueSize: 1024
+writeQueueSize: 2048              # Double the buffer
+readBufferCount: 1024             # Add ring buffer
+
 
 # RTSP settings
 rtsp: yes
