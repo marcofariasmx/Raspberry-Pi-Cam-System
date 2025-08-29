@@ -23,7 +23,10 @@ hlsAllowOrigin: "*"
 hlsAlwaysRemux: yes
 hlsVariant: fmp4
 hlsSegmentCount: 4
-hlsSegmentDuration: 2s
+hlsSegmentDuration: 5s
+hlsSegmentMinDuration: 5s  # Force minimum duration
+hlsSegmentMaxDuration: 5s  # Force maximum duration
+
 hlsPartDuration: 500ms
 
 hlsSegmentMaxSize: 100M
