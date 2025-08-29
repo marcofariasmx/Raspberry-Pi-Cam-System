@@ -22,8 +22,8 @@ hlsEncryption: no
 hlsAllowOrigin: "*"
 hlsAlwaysRemux: yes
 hlsVariant: fmp4
-hlsSegmentCount: 4
-hlsSegmentDuration: 5s
+hlsSegmentCount: 3
+hlsSegmentDuration: 3s
 
 hlsPartDuration: 500ms
 
