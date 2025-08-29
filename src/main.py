@@ -280,7 +280,7 @@ async def video_stream():
             "streaming_mode": "h264",
             "streams": {
                 "webrtc": f"/api/mediamtx/webrtc",
-                "hls": f"/api/mediamtx/hls",
+                "hls": f"/api/mediamtx/hls/cam/index.m3u8",
                 "rtsp": f"rtsp://{config.host}:8554/cam"
             },
             "message": "H.264 streaming active: picamera2 → MediaMTX → WebRTC/HLS"
@@ -315,7 +315,7 @@ async def stream_info():
         "streams": {
             "h264": {
                 "webrtc": f"/api/mediamtx/webrtc",
-                "hls": f"/api/mediamtx/hls", 
+                "hls": f"/api/mediamtx/hls/cam/index.m3u8", 
                 "rtsp": f"rtsp://{config.host}:8554/cam"
             }
         } if h264_active else {},
