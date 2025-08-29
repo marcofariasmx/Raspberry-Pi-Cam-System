@@ -125,11 +125,7 @@
 </head>
 <body>
     <div class="video-container">
-        <!-- WebRTC Video Element (Primary) -->
-        <video id="webrtcStream" autoplay muted playsinline style="display: none;">
-        </video>
-        
-        <!-- HLS Video Element (Fallback) -->
+        <!-- HLS Video Element -->
         <video id="hlsStream" autoplay muted playsinline style="display: none;">
             <source id="hlsSource" src="" type="application/vnd.apple.mpegurl">
         </video>
@@ -168,13 +164,11 @@
     <script src="/static/metrics.js"></script>
     <script>
         let metricsVisible = true;
-        let currentProtocol = null;
-        let webrtcConnection = null;
+        let currentProtocol = 'LL-HLS';
         
         // Get DOM elements
         const metricsBar = document.getElementById('metricsBar');
         const toggleButton = document.getElementById('toggleMetrics');
-        const webrtcStream = document.getElementById('webrtcStream');
         const hlsStream = document.getElementById('hlsStream');
         
         // Toggle metrics visibility
@@ -203,24 +197,15 @@
                     return;
                 }
                 
-                // Try H.264 streams (HLS first for LL-HLS priority, then WebRTC as fallback) 
-                if (streamInfo.streams.h264) {
-                    // Try LL-HLS first (primary protocol)
+                // Try LL-HLS streaming
+                if (streamInfo.streams.h264 && streamInfo.streams.h264.hls) {
                     if (await tryHLS(streamInfo.streams.h264.hls)) {
                         currentProtocol = 'LL-HLS';
                         return;
                     }
-                    
-                    // Fallback to WebRTC if HLS fails
-                    if (await tryWebRTC(streamInfo.streams.h264.webrtc)) {
-                        currentProtocol = 'WebRTC';
-                        return;
-                    }
-                    
-                    // H.264 failed
-                    showError('H.264 streaming failed. Check MediaMTX service.');
+                    showError('HLS streaming failed. Check MediaMTX service.');
                 } else {
-                    showError('No streaming protocols available');
+                    showError('No HLS streaming available');
                 }
                 
             } catch (error) {
@@ -229,65 +214,6 @@
             }
         }
         
-        // Try WebRTC streaming
-        async function tryWebRTC(whepUrl) {
-            if (!window.RTCPeerConnection) {
-                console.log('⚠️  WebRTC not supported');
-                return false;
-            }
-            
-            try {
-                console.log('🔗 Trying WebRTC...');
-                
-                // Create RTCPeerConnection with proper ICE configuration
-                webrtcConnection = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-                });
-                
-                // Handle incoming stream
-                webrtcConnection.ontrack = (event) => {
-                    console.log('📺 WebRTC stream received');
-                    webrtcStream.srcObject = event.streams[0];
-                    showStream('webrtc');
-                };
-                
-                // Add a transceiver to receive video
-                webrtcConnection.addTransceiver('video', { direction: 'recvonly' });
-                
-                // Create offer and connect to MediaMTX WHEP endpoint
-                const offer = await webrtcConnection.createOffer();
-                await webrtcConnection.setLocalDescription(offer);
-                
-                const response = await fetch(whepUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/sdp' },
-                    body: offer.sdp
-                });
-                
-                if (response.ok) {
-                    const answer = await response.text();
-                    await webrtcConnection.setRemoteDescription({
-                        type: 'answer',
-                        sdp: answer
-                    });
-                    
-                    console.log('✅ WebRTC connected');
-                    return true;
-                } else {
-                    const errorText = await response.text();
-                    console.error('❌ WebRTC error:', response.status, errorText);
-                }
-                
-            } catch (error) {
-                console.log('❌ WebRTC failed:', error);
-                if (webrtcConnection) {
-                    webrtcConnection.close();
-                    webrtcConnection = null;
-                }
-            }
-            
-            return false;
-        }
         
         // Try HLS streaming with LL-HLS optimization
         async function tryHLS(hlsUrl) {
@@ -408,21 +334,9 @@
             return false;
         }
         
-        // Show specific stream element
+        // Show HLS stream
         function showStream(type) {
-            // Hide all streams
-            webrtcStream.style.display = 'none';
-            hlsStream.style.display = 'none';
-            
-            // Show selected stream
-            switch (type) {
-                case 'webrtc':
-                    webrtcStream.style.display = 'block';
-                    break;
-                case 'hls':
-                    hlsStream.style.display = 'block';
-                    break;
-            }
+            hlsStream.style.display = 'block';
         }
         
         // Show error message

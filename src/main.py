@@ -236,7 +236,6 @@ async def get_camera_metrics():
         "streaming_mode": "h264",
         "h264_bitrate": config.h264_bitrate,
         "mediamtx_ports": {
-            "webrtc": config.mediamtx_webrtc_port,
             "hls": config.mediamtx_hls_port,
             "udp": config.mediamtx_udp_port
         },
@@ -279,11 +278,10 @@ async def video_stream():
         return {
             "streaming_mode": "h264",
             "streams": {
-                "webrtc": f"/api/mediamtx/webrtc",
                 "hls": f"/api/mediamtx/hls/cam/index.m3u8",
                 "rtsp": f"rtsp://{config.host}:8554/cam"
             },
-            "message": "H.264 streaming active: picamera2 → MediaMTX → WebRTC/HLS"
+            "message": "H.264 streaming active: picamera2 → MediaMTX → HLS"
         }
         
     except Exception as e:
@@ -314,36 +312,14 @@ async def stream_info():
         "streaming_mode": "h264",
         "streams": {
             "h264": {
-                "webrtc": f"/api/mediamtx/webrtc",
                 "hls": f"/api/mediamtx/hls/cam/index.m3u8", 
                 "rtsp": f"rtsp://{config.host}:8554/cam"
             }
         } if h264_active else {},
-        "message": "picamera2 → MediaMTX → WebRTC/HLS pipeline"
+        "message": "picamera2 → MediaMTX → HLS pipeline"
     }
 
 
-@app.api_route("/api/mediamtx/webrtc", methods=["GET", "POST", "PATCH", "DELETE"])
-async def mediamtx_webrtc_proxy(request: Request):
-    """Proxy WebRTC requests to MediaMTX for domain compatibility."""
-    target_url = f"http://localhost:{config.mediamtx_webrtc_port}/cam/whep"
-    
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        # Forward the request to MediaMTX
-        response = await client.request(
-            method=request.method,
-            url=target_url,
-            headers=dict(request.headers),
-            content=await request.body(),
-            follow_redirects=True
-        )
-        
-        # Return the response from MediaMTX
-        return Response(
-            content=response.content,
-            status_code=response.status_code,
-            headers=dict(response.headers)
-        )
 
 
 @app.get("/api/mediamtx/hls")

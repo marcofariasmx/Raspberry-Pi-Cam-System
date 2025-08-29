@@ -62,7 +62,6 @@ class Config:
     # H.264 streaming via MediaMTX
     h264_bitrate: int = 1000000  # 1 Mbps
     mediamtx_udp_port: int = 8891
-    mediamtx_webrtc_port: int = 8443
     mediamtx_hls_port: int = 8888
     
     # Camera hardware settings
@@ -92,7 +91,6 @@ def get_config() -> Config:
         # H.264 MediaMTX settings
         H264_BITRATE: Override H.264 bitrate in bps (e.g., "2000000" for 2Mbps)
         MEDIAMTX_UDP_PORT: UDP port for streaming to MediaMTX
-        MEDIAMTX_WEBRTC_PORT: MediaMTX WebRTC port
         MEDIAMTX_HLS_PORT: MediaMTX HLS port
         CAMERA_HFLIP: Enable horizontal flip ("true"/"false")
         CAMERA_VFLIP: Enable vertical flip ("true"/"false")
@@ -119,7 +117,6 @@ def get_config() -> Config:
         # H.264 MediaMTX settings
         h264_bitrate=int(os.getenv("H264_BITRATE", "1000000")),
         mediamtx_udp_port=int(os.getenv("MEDIAMTX_UDP_PORT", "8891")),
-        mediamtx_webrtc_port=int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8443")),
         mediamtx_hls_port=int(os.getenv("MEDIAMTX_HLS_PORT", "8888")),
         
         camera_hflip=os.getenv("CAMERA_HFLIP", "false").lower() == "true",
@@ -142,6 +139,6 @@ def print_config(config: Config):
     print(f"   Stream: {config.stream_width}x{config.stream_height} @ {config.stream_fps}fps")
     
     print(f"   H.264: {config.h264_bitrate//1000000}Mbps bitrate")
-    print(f"   MediaMTX: WebRTC:{config.mediamtx_webrtc_port}, HLS:{config.mediamtx_hls_port}")
+    print(f"   MediaMTX: HLS:{config.mediamtx_hls_port}")
     
     print(f"   Transforms: hflip={config.camera_hflip}, vflip={config.camera_vflip}")
