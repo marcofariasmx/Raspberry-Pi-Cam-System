@@ -23,7 +23,7 @@ hlsAllowOrigin: "*"
 hlsAlwaysRemux: yes
 hlsVariant: fmp4
 hlsSegmentCount: 3
-hlsSegmentDuration: 1s
+hlsSegmentDuration: 7s
 hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
 hlsDirectory: /tmp/mediamtx-hls
