@@ -12,11 +12,8 @@ apiAddress: 127.0.0.1:9997
 metrics: yes
 metricsAddress: 127.0.0.1:9998
 
-# WebRTC settings
-webrtc: yes
-webrtcAddress: :8443
-webrtcEncryption: no
-webrtcAllowOrigin: "*"
+# WebRTC settings - DISABLED for performance optimization
+webrtc: no
 
 # HLS settings - Optimized for Low Latency
 hls: yes
@@ -24,12 +21,16 @@ hlsAddress: :8888
 hlsEncryption: no
 hlsAllowOrigin: "*"
 hlsAlwaysRemux: yes
-hlsVariant: mpegts
-hlsSegmentCount: 7
+hlsVariant: lowLatency
+hlsSegmentCount: 3
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
 hlsDirectory: /tmp/mediamtx-hls
+
+# Performance optimizations
+readBufferSize: 8192
+writeQueueSize: 8192
 
 # RTSP settings
 rtsp: yes

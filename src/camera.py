@@ -319,12 +319,12 @@ class Camera:
                 self._configure_camera()
                 
                 # Create H.264 encoder with proper configuration for MediaMTX
-                # Adjust keyframe interval based on FPS (every 2 seconds)
-                keyframe_interval = self.config.stream_fps * 2
+                # Adjust keyframe interval based on FPS (every 1 second for HLS segment alignment)
+                keyframe_interval = self.config.stream_fps * 1
                 encoder = H264Encoder(
                     bitrate=self.config.h264_bitrate,
                     repeat=True,     # Repeat SPS/PPS headers for stream robustness
-                    iperiod=keyframe_interval  # Insert keyframes every 2 seconds
+                    iperiod=keyframe_interval  # Insert keyframes every 1 second for HLS alignment
                 )
                 
                 # Create FFmpeg output to publish H.264 directly to MediaMTX via RTSP
