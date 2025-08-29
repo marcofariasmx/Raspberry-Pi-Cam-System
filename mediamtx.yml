@@ -26,7 +26,7 @@ hlsSegmentCount: 5
 hlsSegmentDuration: 5s
 hlsPartDuration: 500ms
 
-hlsSegmentMaxSize: 1000M
+hlsSegmentMaxSize: 100M
 hlsDirectory: ''
 
 # Performance optimizations

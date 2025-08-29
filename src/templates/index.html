@@ -329,13 +329,67 @@
                     
                     hls.on(Hls.Events.MANIFEST_PARSED, () => {
                         console.log('✅ LL-HLS manifest loaded');
+                        hlsRecoveryAttempts = 0; // Reset recovery counter on success
                         hlsStream.play();
                     });
                     
+                    // Reset recovery counter on successful fragment loading
+                    hls.on(Hls.Events.FRAG_LOADED, () => {
+                        if (hlsRecoveryAttempts > 0) {
+                            console.log('✅ Stream recovered - resetting error counter');
+                            hlsRecoveryAttempts = 0;
+                        }
+                    });
+                    
+                    // Enhanced error recovery with automatic restart
+                    let hlsRecoveryAttempts = 0;
+                    const maxHlsRecoveryAttempts = 3;
+                    
                     hls.on(Hls.Events.ERROR, (event, data) => {
+                        console.log(`⚠️  HLS error: ${data.type} - ${data.details}`, data);
+                        
                         if (data.fatal) {
-                            console.error('❌ Fatal HLS error:', data.type);
-                            hls.destroy();
+                            console.log(`❌ Fatal HLS error: ${data.type}`);
+                            
+                            switch (data.type) {
+                                case Hls.ErrorTypes.NETWORK_ERROR:
+                                    console.log('🔄 Network error - attempting recovery...');
+                                    if (hlsRecoveryAttempts < maxHlsRecoveryAttempts) {
+                                        hlsRecoveryAttempts++;
+                                        console.log(`🔄 HLS recovery attempt ${hlsRecoveryAttempts}/${maxHlsRecoveryAttempts}`);
+                                        setTimeout(() => {
+                                            hls.startLoad();
+                                        }, 1000 * hlsRecoveryAttempts); // Progressive backoff
+                                    } else {
+                                        console.log('❌ Max HLS recovery attempts reached - destroying HLS');
+                                        hls.destroy();
+                                        // Try to restart stream after delay
+                                        setTimeout(initializeStream, 5000);
+                                    }
+                                    break;
+                                    
+                                case Hls.ErrorTypes.MEDIA_ERROR:
+                                    console.log('🔄 Media error - attempting recovery...');
+                                    if (hlsRecoveryAttempts < maxHlsRecoveryAttempts) {
+                                        hlsRecoveryAttempts++;
+                                        console.log(`🔄 HLS media recovery attempt ${hlsRecoveryAttempts}/${maxHlsRecoveryAttempts}`);
+                                        hls.recoverMediaError();
+                                    } else {
+                                        console.log('❌ Media recovery failed - restarting stream');
+                                        hls.destroy();
+                                        setTimeout(initializeStream, 3000);
+                                    }
+                                    break;
+                                    
+                                default:
+                                    console.log('❌ Unrecoverable HLS error - restarting stream');
+                                    hls.destroy();
+                                    setTimeout(initializeStream, 5000);
+                                    break;
+                            }
+                        } else {
+                            // Non-fatal errors - log but continue
+                            console.log(`⚠️  Non-fatal HLS error: ${data.details}`);
                         }
                     });
                     
