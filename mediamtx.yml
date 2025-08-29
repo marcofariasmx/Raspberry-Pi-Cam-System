@@ -21,10 +21,10 @@ hlsAddress: :8888
 hlsEncryption: no
 hlsAllowOrigin: "*"
 hlsAlwaysRemux: yes
-hlsVariant: fmp4
-hlsSegmentCount: 5
-hlsSegmentDuration: 5s
-hlsPartDuration: 500ms
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
 hlsSegmentMaxSize: 1000M
 hlsDirectory: ''
 
