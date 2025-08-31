@@ -325,8 +325,12 @@ class Camera:
                 )
                 
                 # Create FFmpeg output to publish H.264 directly to MediaMTX via RTSP
+                # Added reconnection flags to handle broken pipe errors automatically
                 rtsp_url = f"rtsp://127.0.0.1:8554/cam"
-                self.h264_output = FfmpegOutput(f"-f rtsp -rtsp_transport tcp -fflags +genpts {rtsp_url}")
+                self.h264_output = FfmpegOutput(
+                    f"-f rtsp -rtsp_transport tcp -reconnect 1 -reconnect_at_eof 1 "
+                    f"-reconnect_streamed 1 -reconnect_delay_max 2 -fflags +genpts {rtsp_url}"
+                )
                 
                 # Start recording with H.264 encoder
                 self.camera.start_recording(encoder, self.h264_output)
