@@ -470,9 +470,30 @@ async def update_camera_settings(settings: CameraSettings):
 
 if __name__ == "__main__":
     import uvicorn
+    import logging
+    
+    # Configure uvicorn access log filtering
+    class FilterHealthChecks(logging.Filter):
+        """Filter out repetitive health/metrics requests from logs"""
+        def filter(self, record):
+            # Only filter access logs
+            if record.name == "uvicorn.access":
+                message = record.getMessage()
+                # Filter out these repetitive endpoints
+                if any(endpoint in message for endpoint in [
+                    "/health",
+                    "/api/camera/metrics"
+                ]):
+                    return False  # Don't log these
+            return True  # Log everything else
+    
+    # Apply filter to uvicorn access logger
+    logging.getLogger("uvicorn.access").addFilter(FilterHealthChecks())
+    
     uvicorn.run(
         app,
         host=config.host,
         port=config.port,
-        log_level="info"
+        log_level="warning",  # Only show warnings and errors
+        access_log=True  # Keep access log but filtered
     )
