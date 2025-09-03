@@ -8,6 +8,10 @@ logDestinations: [stdout]
 api: yes
 apiAddress: 127.0.0.1:9997
 
+# Timeout settings - prevent broken pipe errors
+readTimeout: 300s   # Increase from default 10s to 5 minutes
+writeTimeout: 300s  # Increase from default 10s to 5 minutes
+
 # Metrics
 metrics: yes
 metricsAddress: 127.0.0.1:9998
@@ -27,7 +31,7 @@ hlsSegmentDuration: 3s
 
 hlsPartDuration: 500ms
 
-hlsSegmentMaxSize: 100M
+hlsSegmentMaxSize: 5M
 hlsDirectory: ''
 
 # Performance optimizations
